@@ -5,3 +5,17 @@ dist/
 *.log
 .DS_Store
 seed/.generated.sql
+
+# Generated from profiles/*.json at build time (npm run profiles).
+src/config/profiles.generated.ts
+
+# Real tenant profiles carry client PII (names, addresses, rates) and live in
+# the private hourchit-tenants repo, copied in at deploy time. This repo is
+# public: only the generic core and the documented example may be committed.
+profiles/*.json
+!profiles/core.json
+!profiles/example.json
+
+# Tenant wrangler configs are copied in from the private tenants repo at
+# deploy time and carry client worker names + D1 ids.
+wrangler.tenant.*.jsonc

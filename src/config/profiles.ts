@@ -1,13 +1,7 @@
 import { TenantProfile } from './profile';
-import core from '../../profiles/core.json';
-import mkllc from '../../profiles/mk-llc.json';
-
-// Profiles are bundled at build time. To add a client, drop in a new
-// profiles/<key>.json, register it here, and point a wrangler env at it.
-const PROFILES: Record<string, TenantProfile> = {
-  core: core as TenantProfile,
-  'mk-llc': mkllc as TenantProfile,
-};
+// Built from profiles/*.json by scripts/generate-profiles.mjs. If your editor
+// flags this as missing, run `npm run profiles`.
+import { PROFILES } from './profiles.generated';
 
 export function loadProfile(key: string): TenantProfile {
   const profile = PROFILES[key];
@@ -17,4 +11,9 @@ export function loadProfile(key: string): TenantProfile {
     );
   }
   return profile;
+}
+
+/** Every profile bundled into this build. Used by tests and tooling. */
+export function knownProfileKeys(): string[] {
+  return Object.keys(PROFILES);
 }

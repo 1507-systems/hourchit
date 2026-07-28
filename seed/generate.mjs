@@ -3,7 +3,7 @@
  * Emit seed SQL for a tenant profile so the profile JSON stays the single
  * source of truth. Usage:
  *
- *   node seed/generate.mjs mk-llc > seed/.generated.sql
+ *   npm run seed:sql -- <profile-key> > seed/.generated.sql
  *   npx wrangler d1 execute DB --remote --file seed/.generated.sql
  *
  * Seeds the customer, task(s), and route(s) from profiles/<key>.json. Rerunning

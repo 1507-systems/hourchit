@@ -4,17 +4,22 @@
   "private": true,
   "type": "module",
   "description": "Portable time-tracking, mileage, and invoicing for a one-person LLC. Cloudflare Worker + D1.",
+  "license": "MIT",
   "scripts": {
+    "profiles": "node scripts/generate-profiles.mjs",
+    "predev": "npm run profiles",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "deploy:mkllc": "wrangler deploy --env mkllc",
-    "typecheck": "tsc --noEmit",
+    "pretest": "npm run profiles",
     "test": "vitest run",
+    "pretest:watch": "npm run profiles",
     "test:watch": "vitest",
+    "pretypecheck": "npm run profiles",
+    "typecheck": "tsc --noEmit",
+    "predeploy": "npm run profiles",
+    "deploy": "wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "seed:mkllc:local": "node seed/generate.mjs mk-llc > seed/.generated.sql && wrangler d1 execute DB --env mkllc --local --file seed/.generated.sql",
-    "seed:mkllc:remote": "node seed/generate.mjs mk-llc > seed/.generated.sql && wrangler d1 execute DB --env mkllc --remote --file seed/.generated.sql"
+    "seed:sql": "node seed/generate.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0"

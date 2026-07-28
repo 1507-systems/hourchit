@@ -1,0 +1,38 @@
+{
+  "key": "example",
+  "business": {
+    "name": "Example Contracting LLC",
+    "address": "123 Main St\nAnytown, ST 00000",
+    "email": "billing@example.com",
+    "phone": "(555) 555-0100"
+  },
+  "settings": {
+    "currency": "USD",
+    "mileageRateCentsPerMile": 70,
+    "afterHoursStart": "16:30",
+    "weekendDays": [0, 6],
+    "invoicePrefix": "EX"
+  },
+  "seed": {
+    "customer": {
+      "name": "Example Institutional Client",
+      "address": "500 Campus Drive\nAnytown, ST 00000",
+      "email": "accountspayable@client.example"
+    },
+    "tasks": [
+      {
+        "name": "On-call A/V support",
+        "description": "Primary billable engagement for the institutional client.",
+        "rateDollarsPerHour": 95
+      }
+    ],
+    "routes": [
+      {
+        "label": "Home ↔ Client site",
+        "fromAddress": "123 Main St\nAnytown, ST 00000",
+        "toAddress": "500 Campus Drive\nAnytown, ST 00000",
+        "oneWayMiles": 12.4
+      }
+    ]
+  }
+}

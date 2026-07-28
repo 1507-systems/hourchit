@@ -1,16 +1,20 @@
 {
   // hourchit — Cloudflare Worker + D1.
   //
+  // This file configures the generic "core" deployment ONLY. Real tenants are
+  // deployed with their own complete config, which lives in a separate private
+  // repo and is copied in at deploy time (see docs/TENANTS.md). That keeps
+  // client worker names and database ids out of this public repository.
+  //
   // PORTABILITY: no `account_id` is hard-coded here. Deploy picks the account
   // from the CLOUDFLARE_ACCOUNT_ID env var, so the same repo ships to any CF
   // account (dev under 1507 Systems today; a client's own account tomorrow).
   //
   //   export CLOUDFLARE_ACCOUNT_ID=<account-id>
-  //   npx wrangler d1 create hourchit-core         # paste database_id below
-  //   npx wrangler d1 migrations apply DB --remote
-  //   npx wrangler secret put ACCESS_TOKEN
-  //   npx wrangler deploy                        # core (clean) profile
-  //   npx wrangler deploy --env mkllc            # MK LLC profile
+  //   npx wrangler d1 create hourchit-core     # paste database_id below
+  //   npm run migrate:remote
+  //   npx wrangler secret put ACCESS_TOKEN     # REQUIRED — the app fails closed
+  //   npm run deploy
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hourchit-core",
   "main": "src/index.ts",
@@ -27,21 +31,5 @@
       "database_id": "PLACEHOLDER_CORE_D1_ID",
       "migrations_dir": "migrations"
     }
-  ],
-
-  "env": {
-    // MK LLC configured deployment — same code, different profile + database.
-    "mkllc": {
-      "name": "hourchit-mkllc",
-      "vars": { "TENANT_PROFILE": "mk-llc" },
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "hourchit-mkllc",
-          "database_id": "f6187ee7-a25f-41a7-8261-e89d8b69499a",
-          "migrations_dir": "migrations"
-        }
-      ]
-    }
-  }
+  ]
 }
