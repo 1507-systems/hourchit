@@ -1,18 +1,18 @@
 {
-  // stint — Cloudflare Worker + D1.
+  // hourchit — Cloudflare Worker + D1.
   //
   // PORTABILITY: no `account_id` is hard-coded here. Deploy picks the account
   // from the CLOUDFLARE_ACCOUNT_ID env var, so the same repo ships to any CF
   // account (dev under 1507 Systems today; a client's own account tomorrow).
   //
   //   export CLOUDFLARE_ACCOUNT_ID=<account-id>
-  //   npx wrangler d1 create stint-core         # paste database_id below
+  //   npx wrangler d1 create hourchit-core         # paste database_id below
   //   npx wrangler d1 migrations apply DB --remote
   //   npx wrangler secret put ACCESS_TOKEN
   //   npx wrangler deploy                        # core (clean) profile
   //   npx wrangler deploy --env mkllc            # MK LLC profile
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "stint-core",
+  "name": "hourchit-core",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",
   "observability": { "enabled": true },
@@ -23,7 +23,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "stint-core",
+      "database_name": "hourchit-core",
       "database_id": "PLACEHOLDER_CORE_D1_ID",
       "migrations_dir": "migrations"
     }
@@ -32,13 +32,13 @@
   "env": {
     // MK LLC configured deployment — same code, different profile + database.
     "mkllc": {
-      "name": "stint-mkllc",
+      "name": "hourchit-mkllc",
       "vars": { "TENANT_PROFILE": "mk-llc" },
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "stint-mkllc",
-          "database_id": "PLACEHOLDER_MKLLC_D1_ID",
+          "database_name": "hourchit-mkllc",
+          "database_id": "f6187ee7-a25f-41a7-8261-e89d8b69499a",
           "migrations_dir": "migrations"
         }
       ]
