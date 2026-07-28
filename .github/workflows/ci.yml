@@ -1,0 +1,51 @@
+name: CI
+
+# This repository is public, so it uses GitHub-hosted runners: they are free
+# here and sandboxed, and a self-hosted runner must never be attached to a
+# public repo — a fork PR would execute arbitrary code on the host.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Don't let two runs of the same ref pile up; a superseded PR run is wasted.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Regenerates src/config/profiles.generated.ts from profiles/*.json.
+      # It's gitignored, so nothing downstream works without this.
+      - run: npm run profiles
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # The core is published. A real tenant profile carries a client's address
+      # and billing email, so catch one before it reaches the public history
+      # rather than after.
+      - name: Assert no tenant profiles are committed
+        run: |
+          tracked="$(git ls-files profiles/)"
+          expected=$'profiles/core.json\nprofiles/example.json'
+          if [ "$tracked" != "$expected" ]; then
+            echo "::error::Unexpected files tracked under profiles/. Only core.json and example.json may be committed."
+            echo "Tracked:"; echo "$tracked"
+            exit 1
+          fi

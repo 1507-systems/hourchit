@@ -1,0 +1,54 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please don't report security vulnerabilities here — use a
+        [private advisory](https://github.com/1507-systems/hourchit/security/advisories/new)
+        instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Log a trip on route X at 16:29
+        2. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Local (wrangler dev)
+        - Deployed Worker
+    validations:
+      required: true
+
+  - type: textarea
+    id: profile
+    attributes:
+      label: Relevant profile settings
+      description: >
+        Mileage rate, after-hours cutoff, weekend days — whatever is relevant.
+        Redact real addresses, emails, and rates; invented values that still
+        reproduce the bug are ideal.
+      render: json
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Error text, `wrangler tail` output, screenshots.

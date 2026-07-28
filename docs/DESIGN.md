@@ -5,8 +5,8 @@
 
 ## Problem
 
-A one-person LLC (working name **MK LLC**), restarting with a single
-institutional client, needs a very basic system to:
+A one-person LLC, restarting with a single institutional client, needs a very
+basic system to:
 
 1. Track billable time against a task (start/stop, auto date+time, cumulative
    unbilled duration until invoiced).
@@ -35,10 +35,16 @@ generic core** plus a **configured** deployment for the client's use case.
 
 ## Core vs. configured
 
-One codebase. `profiles/core.json` is generic/blank; `profiles/mk-llc.json`
-carries MK LLC's branding, rates, mileage rule, and seed data. `TENANT_PROFILE`
-(a wrangler var) selects the active profile; a matching wrangler env gives each
-tenant its own D1. New client = new profile + new env, no core changes.
+One codebase. `profiles/core.json` is generic/blank and `profiles/example.json`
+documents the shape; a real tenant profile carries that business's branding,
+rates, mileage rule, and seed data. `TENANT_PROFILE` (a wrangler var) selects
+the active profile; each tenant gets its own wrangler config and its own D1. New
+client = new profile + new config, no core changes.
+
+Because a real profile contains personal data — a business address, a billing
+email, the home address behind the mileage route — and this repository is
+public, real profiles live in a separate private repository and are copied in at
+deploy time. `.gitignore` enforces the split. See `docs/TENANTS.md`.
 
 ## Data model
 
