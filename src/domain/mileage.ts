@@ -1,9 +1,9 @@
 /**
- * Mileage classification — the "smarts".
+ * Mileage classification, the "smarts".
  *
  * The rule (configurable per tenant): a trip on a known route between the
  * owner's home and a client site is billable business travel when it happens
- * OUTSIDE normal daytime hours — i.e. at/after an after-hours cutoff (default
+ * OUTSIDE normal daytime hours, i.e. at/after an after-hours cutoff (default
  * 16:30) OR on a weekend. Ordinary daytime commuting is not billed.
  *
  * Trips are classified on their LOCAL wall-clock time. We parse the naive

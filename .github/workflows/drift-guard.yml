@@ -10,7 +10,7 @@ name: Drift guard
 # ever execute on the base repository, so HEALTH_URLS is not exposed to forks.
 on:
   schedule:
-    # 07:20 UTC daily. Off the hour — scheduled jobs at :00 queue behind the
+    # 07:20 UTC daily. Off the hour, scheduled jobs at :00 queue behind the
     # whole platform's cron peak.
     - cron: '20 7 * * *'
   workflow_dispatch:
@@ -43,10 +43,10 @@ jobs:
 
           # tr, not ${//}, so a value of just newlines counts as empty too.
           if [ -z "$(tr -d '[:space:]' <<<"$HEALTH_URLS")" ]; then
-            echo "HEALTH_URLS is not set — no deployments to check."
+            echo "HEALTH_URLS is not set, no deployments to check."
             echo "Set it to enable this guard: a whitespace-separated list of" \
                  "deployment base URLs (https://<worker>.workers.dev)."
-            echo "### Drift guard: inert — HEALTH_URLS is not set" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Drift guard: inert: HEALTH_URLS is not set" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
@@ -62,7 +62,7 @@ jobs:
 
             body="$(curl -fsS --max-time 20 --retry 2 --retry-delay 5 "$base/health")" || {
               echo "::error::$base is unreachable. Either it was never deployed or it is down."
-              row "$base" "unreachable" "—" "—" "—" "—"
+              row "$base" "unreachable" ", " ", " ", " ", "
               failed=1
               continue
             }
@@ -75,7 +75,7 @@ jobs:
 
             if [ "$status" != "ok" ]; then
               echo "::error::$base reported status '$status'."
-              row "$base" "${tenant:-?}" "bad status" "—" "—" "$configured"
+              row "$base" "${tenant:-?}" "bad status" ", " ", " "$configured"
               failed=1
               continue
             fi
@@ -83,13 +83,13 @@ jobs:
             # The app fails closed without ACCESS_TOKEN, so it would be serving
             # 503 to every real request while still answering here.
             if [ "$configured" != "true" ]; then
-              echo "::error::$base is missing ACCESS_TOKEN — every route returns 503. Run: wrangler secret put ACCESS_TOKEN"
+              echo "::error::$base is missing ACCESS_TOKEN, every route returns 503. Run: wrangler secret put ACCESS_TOKEN"
               failed=1
             fi
 
             if [ -z "$version" ] || [ "$version" = "unknown" ]; then
-              echo "::error::$base does not report a build identity ('$version'). It predates build stamping, or was deployed from a tree with no git history — either way the deploy cannot be verified."
-              row "$base" "$tenant" "unstamped" "—" "${config:-—}" "$configured"
+              echo "::error::$base does not report a build identity ('$version'). It predates build stamping, or was deployed from a tree with no git history, either way the deploy cannot be verified."
+              row "$base" "$tenant" "unstamped" ", " "${config:-, }" "$configured"
               failed=1
               continue
             fi
@@ -97,7 +97,7 @@ jobs:
             # A deployed commit that is not in this history is not reviewed code.
             if ! git cat-file -e "${version}^{commit}" 2>/dev/null; then
               echo "::error::$base is running core commit $version, which does not exist in this repository. It was deployed from a fork or an unpushed branch."
-              row "$base" "$tenant" "$version (unknown)" "—" "${config:-—}" "$configured"
+              row "$base" "$tenant" "$version (unknown)" ", " "${config:-, }" "$configured"
               failed=1
               continue
             fi
@@ -113,11 +113,11 @@ jobs:
                 echo "::warning::$base ($tenant) runs core $version, $behind commit(s) behind main. Bump its pinned core ref to ship them."
               fi
             else
-              echo "::warning::$base ($tenant) runs core $version, which is not an ancestor of main — a branch deploy, or main was force-pushed."
+              echo "::warning::$base ($tenant) runs core $version, which is not an ancestor of main, a branch deploy, or main was force-pushed."
               behind="?"
             fi
 
-            row "$base" "$tenant" "$version" "$behind" "${config:-—}" "$configured"
+            row "$base" "$tenant" "$version" "$behind" "${config:-, }" "$configured"
           done
 
           {

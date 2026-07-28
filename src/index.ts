@@ -34,10 +34,10 @@ import { renderInvoice } from './ui/invoice';
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Health check — unauthenticated, and deliberately so: it is what a deploy
+// Health check, unauthenticated, and deliberately so: it is what a deploy
 // pipeline reads back to confirm the deploy actually took effect. A deploy
 // that silently no-ops is otherwise indistinguishable from a successful one.
-// It reports only the build identity and which tenant is configured — never
+// It reports only the build identity and which tenant is configured, never
 // the profile contents, which are the client's business.
 app.get('/health', (c) =>
   c.json({
@@ -178,7 +178,7 @@ app.post('/mileage', async (c) => {
   const verdict = classification.billable
     ? `Billable (${classification.reason})`
     : 'Not billable (daytime)';
-  return c.redirect('/?ok=' + encodeURIComponent(`Logged ${miles} mi — ${verdict}`));
+  return c.redirect('/?ok=' + encodeURIComponent(`Logged ${miles} mi: ${verdict}`));
 });
 
 app.post('/invoices', async (c) => {

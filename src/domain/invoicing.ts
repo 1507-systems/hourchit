@@ -1,6 +1,6 @@
 /**
  * Invoice assembly. Turns unbilled time + billable mileage into line items and
- * totals. Pure — the caller supplies already-fetched, already-filtered rows.
+ * totals. Pure, the caller supplies already-fetched, already-filtered rows.
  */
 import { decimalHours } from './time';
 import { mileageAmountCents, timeAmountCents } from './money';

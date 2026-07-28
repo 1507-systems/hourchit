@@ -10,7 +10,7 @@ const ROOT = new URL('..', import.meta.url).pathname;
  * Run the stamper against a throwaway copy of itself.
  *
  * It writes src/build-info.generated.ts next to its own location, so testing it
- * in place would rewrite the stamp the rest of the suite already imported —
+ * in place would rewrite the stamp the rest of the suite already imported , 
  * order-dependent and, worse, it would leave a wrong stamp behind for whatever
  * ran next. A temp tree isolates it completely and lets the no-git case be real
  * rather than mocked.
@@ -22,7 +22,7 @@ function stamp({
 }: {
   git: boolean;
   env?: Record<string, string>;
-  /** Set WORKERS_CI_COMMIT_SHA to the fixture's own HEAD — the core-repo CI case. */
+  /** Set WORKERS_CI_COMMIT_SHA to the fixture's own HEAD, the core-repo CI case. */
   ciShaIsHead?: boolean;
 }) {
   const dir = mkdtempSync(join(tmpdir(), 'hourchit-buildinfo-'));
@@ -45,7 +45,7 @@ function stamp({
     execFileSync('node', [join(dir, 'scripts', 'generate-build-info.mjs')], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      // Wipe the inherited CI variables — this suite itself runs in CI, where
+      // Wipe the inherited CI variables, this suite itself runs in CI, where
       // GITHUB_SHA is set and would leak into every case.
       env: {
         PATH: process.env.PATH ?? '',
@@ -80,7 +80,7 @@ describe('build stamp', () => {
    * ref inside a checkout of the *config* repo, so WORKERS_CI_COMMIT_SHA is the
    * config repo's commit. If that won, /health would advertise a sha from a
    * different history and the drift check would compare unrelated repositories
-   * — silently, since the value looks like a perfectly good sha.
+   *, silently, since the value looks like a perfectly good sha.
    */
   it('keeps the core sha when CI is building a different repository', () => {
     const { head, gitSha, configSha } = stamp({

@@ -1,6 +1,6 @@
 /**
  * Money is always stored and moved around as an integer number of cents.
- * Never use floating-point dollars for arithmetic — round once, at the edges.
+ * Never use floating-point dollars for arithmetic, round once, at the edges.
  */
 
 /** Round to the nearest integer, ties away from zero (standard invoice rounding). */

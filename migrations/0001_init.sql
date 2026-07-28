@@ -39,7 +39,7 @@ CREATE TABLE time_entries (
 CREATE INDEX idx_time_task     ON time_entries(task_id);
 CREATE INDEX idx_time_unbilled ON time_entries(invoice_id);
 -- At most one running timer across the system. Index a constant expression
--- (true for every running row) rather than stopped_at itself — SQLite treats
+-- (true for every running row) rather than stopped_at itself: SQLite treats
 -- NULLs as distinct, so a plain unique index on the NULL column would not bite.
 CREATE UNIQUE INDEX idx_time_one_running ON time_entries((stopped_at IS NULL)) WHERE stopped_at IS NULL;
 

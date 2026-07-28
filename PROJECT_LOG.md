@@ -2,7 +2,7 @@
 
 Running history of decisions and significant changes. Newest first.
 
-## 2026-07-28 — Open-source split, security fix, tenant rename
+## 2026-07-28: Open-source split, security fix, tenant rename
 
 **Renamed `stint` → `hourchit`.** A namespace search found `stint` taken on npm,
 PyPI, crates.io, and RubyGems, plus an existing stint.co and a TimeStint
@@ -15,7 +15,7 @@ dev`, but nothing enforced the scope, so any deploy that skipped `wrangler
 secret put` would have served a real client's billing data to anyone who found
 the URL. The gate now fails closed in every environment (503), local development
 supplies the token through `.dev.vars`, and both token comparisons are
-constant-time. `test/auth.test.ts` covers it — the two fail-closed cases return
+constant-time. `test/auth.test.ts` covers it, the two fail-closed cases return
 200 against the previous implementation and 503 against this one.
 
 **Split public core from private tenant data.** The core is being published, and
@@ -41,14 +41,14 @@ from `mk-llc` to `matts-av` before any data was seeded.
 Systems), README rewritten for an outside reader, `CONTRIBUTING.md`,
 `SECURITY.md` with an honest threat model, `CODE_OF_CONDUCT.md`, issue and PR
 templates, and a GitHub-hosted CI workflow. Public repo, so GitHub-hosted
-runners — a self-hosted runner must never be attached to a public repository.
+runners (a self-hosted runner must never be attached to a public repository).
 
 ### Round one (built in a remote session, same day)
 
 Cloudflare Worker + D1, Hono, server-rendered HTML, integer cents for money, and
 naive local wall-clock strings for trip times so `16:30` means what the owner's
-watch says. The mileage rule — billable at/after the after-hours cutoff or on a
-weekend, distance from the stored one-way route mileage doubled — is the only
+watch says. The mileage rule, billable at/after the after-hours cutoff or on a
+weekend, distance from the stored one-way route mileage doubled, is the only
 non-obvious piece, and it exists because after-hours travel to a client site is
 deductible where the daytime commute isn't.
 

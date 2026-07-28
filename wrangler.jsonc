@@ -1,5 +1,5 @@
 {
-  // hourchit — Cloudflare Worker + D1.
+  // HourChit: Cloudflare Worker + D1.
   //
   // This file configures the generic "core" deployment ONLY. Real tenants are
   // deployed with their own complete config, which lives in a separate private
@@ -13,7 +13,7 @@
   //   export CLOUDFLARE_ACCOUNT_ID=<account-id>
   //   npx wrangler d1 create hourchit-core     # paste database_id below
   //   npm run migrate:remote
-  //   npx wrangler secret put ACCESS_TOKEN     # REQUIRED — the app fails closed
+  //   npx wrangler secret put ACCESS_TOKEN     # REQUIRED, the app fails closed
   //   npm run deploy
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hourchit-core",

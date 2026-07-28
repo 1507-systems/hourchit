@@ -2,7 +2,7 @@ name: CI
 
 # This repository is public, so it uses GitHub-hosted runners: they are free
 # here and sandboxed, and a self-hosted runner must never be attached to a
-# public repo — a fork PR would execute arbitrary code on the host.
+# public repo: a fork PR would execute arbitrary code on the host.
 on:
   push:
     branches: [main]

@@ -24,7 +24,7 @@ describe('/health', () => {
 
   // A managed tenant deploy builds two repos: this core, plus the private repo
   // that pinned it. The field must always be present so a drift check can tell
-  // "built from the core directly" ('') from "built by a config repo" — an
+  // "built from the core directly" ('') from "built by a config repo", an
   // absent key would be indistinguishable from an old build.
   it('always reports a config identity field', async () => {
     const body = (await (await app.request('/health', {}, env())).json()) as Record<

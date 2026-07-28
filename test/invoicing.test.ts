@@ -8,7 +8,7 @@ describe('invoicing', () => {
         { taskId: 1, taskName: 'On-site coverage', rateCentsPerHour: 9500, seconds: 5400 }, // 1.5h => $142.50
         { taskId: 2, taskName: 'Remote support', rateCentsPerHour: 8000, seconds: 3600 }, // 1h => $80.00
       ],
-      [{ description: 'Mileage — 2026-07-28 (after-hours)', miles: 36.8, rateCentsPerMile: 70 }], // $25.76
+      [{ description: 'Mileage: 2026-07-28 (after-hours)', miles: 36.8, rateCentsPerMile: 70 }], // $25.76
     );
 
     expect(totals.timeSubtotalCents).toBe(14250 + 8000);
