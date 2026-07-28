@@ -19,3 +19,6 @@ profiles/*.json
 # Tenant wrangler configs are copied in from the private tenants repo at
 # deploy time and carry client worker names + D1 ids.
 wrangler.tenant.*.jsonc
+
+# Local WIP marker for concurrent Claude Code sessions.
+.reconvoy-skip
