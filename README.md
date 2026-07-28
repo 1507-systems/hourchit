@@ -26,9 +26,18 @@ run and moves between Cloudflare accounts without a code change.
   printable page. "Print / Save as PDF" in the browser is the delivery mechanism;
   "mark sent" records the method.
 
-The mileage rule is the only clever part, and it exists because after-hours
-travel to a client site is deductible business mileage while the daytime commute
-to the same site isn't.
+The mileage rule is the only clever part. It encodes a **billing** arrangement —
+an engagement where after-hours and weekend call-outs are chargeable and the
+ordinary daytime commute isn't. What you may bill is whatever your contract with
+your customer says.
+
+> **It is not a tax rule, and you should not read it as one.** Whether a trip
+> between home and a work location is *deductible* is governed by
+> [Rev. Rul. 99-7](https://www.irs.gov/pub/irs-drop/rr-99-7.pdf), which turns on
+> whether the location is temporary, whether you have a regular workplace
+> elsewhere, and whether your home is your principal place of business. The time
+> of day and the day of the week are irrelevant to that question. Configure this
+> rule to match your contract, and take deductibility from your accountant.
 
 ## Try it
 

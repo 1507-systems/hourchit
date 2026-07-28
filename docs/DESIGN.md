@@ -62,6 +62,22 @@ normal daytime commute and not billed. Distance resolves from the route table;
 the `DistanceProvider` interface is where a live Google Maps Distance Matrix
 lookup slots in without touching schema or callers.
 
+**`billable` means chargeable to the customer, not deductible on a tax return.**
+The two are different questions and this field only answers the first. Tax
+deductibility of home-to-worksite travel is governed by
+[Rev. Rul. 99-7](https://www.irs.gov/pub/irs-drop/rr-99-7.pdf) and turns on
+whether the work location is temporary, whether the taxpayer has a regular
+workplace elsewhere, and whether the residence is the principal place of
+business under § 280A(c)(1)(A). Time of day and day of week play no part in it.
+Conflating the two would be an expensive mistake in both directions — billing
+for what the contract doesn't cover, or failing to claim deductible travel
+because the app called it a commute.
+
+The per-mile rate is stored **on each mileage row** at entry time, not read from
+the profile at invoice time. That is deliberate: published mileage rates change,
+sometimes mid-year, and a rate change must not silently reprice trips already
+taken.
+
 ## Deliberately deferred
 
 - Real client data (profile is `TODO:`-filled pending the LLC name/details).
