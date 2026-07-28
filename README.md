@@ -35,9 +35,18 @@ your customer says.
 > between home and a work location is *deductible* is governed by
 > [Rev. Rul. 99-7](https://www.irs.gov/pub/irs-drop/rr-99-7.pdf), which turns on
 > whether the location is temporary, whether you have a regular workplace
-> elsewhere, and whether your home is your principal place of business. The time
-> of day and the day of the week are irrelevant to that question. Configure this
-> rule to match your contract, and take deductibility from your accountant.
+> elsewhere, and whether your home is your principal place of business. No
+> provision makes a trip deductible because of the hour it happened. Configure
+> this rule to match your contract, and take deductibility from your accountant.
+
+Where the cutoff *does* carry weight is when it separates two different
+capacities — someone who is an employee of an organisation by day and contracts
+with the same organisation after hours is making genuinely different trips, and
+Rev. Rul. 99-7 determines deductibility "on a business-by-business basis." Even
+then the clock is only evidence of which hat you were wearing. That is an
+argument for confirming each trip rather than inferring it: a deliberate
+confirmation is a contemporaneous record of capacity, and that is what survives
+scrutiny.
 
 ## Try it
 
