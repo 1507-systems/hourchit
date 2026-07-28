@@ -1,0 +1,10 @@
+{
+  // Tests and build scripts run under Node, so they may use Node built-ins.
+  // Keeping them out of the main tsconfig is what stops src/ from doing the
+  // same and only finding out once it's deployed to the Workers runtime.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["test", "seed", "scripts", "src"]
+}

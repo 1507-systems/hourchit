@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, copyFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;

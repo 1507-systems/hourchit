@@ -4,6 +4,10 @@
     "module": "ES2022",
     "moduleResolution": "Bundler",
     "lib": ["ES2022"],
+    // Worker code gets Cloudflare's types and deliberately NOT @types/node, so
+    // that reaching for a Node built-in that the Workers runtime doesn't have
+    // fails here rather than at the edge. Tests and build scripts do run under
+    // Node and are typechecked separately — see tsconfig.node.json.
     "types": ["@cloudflare/workers-types"],
     "strict": true,
     "noUnusedLocals": true,
@@ -15,5 +19,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src", "seed", "test"]
+  "include": ["src"]
 }
