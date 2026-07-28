@@ -1,4 +1,4 @@
-# stint — design notes
+# hourchit — design notes
 
 **Date:** 2026-07-28
 **Status:** Round one (initial build)

@@ -1,4 +1,4 @@
-# stint
+# hourchit
 
 Tiny time-tracking, mileage, and invoicing for a one-person LLC. A single
 Cloudflare **Worker** + **D1** database — no client framework, no build step for
@@ -78,7 +78,7 @@ With no `ACCESS_TOKEN` set the app runs open (local only).
 export CLOUDFLARE_ACCOUNT_ID=1bc602ff7462b84393caf09302a19b29   # 1507 Systems
 
 # --- MK LLC environment ---
-npx wrangler d1 create stint-mkllc        # paste database_id into wrangler.jsonc (env.mkllc)
+npx wrangler d1 create hourchit-mkllc        # paste database_id into wrangler.jsonc (env.mkllc)
 npx wrangler d1 migrations apply DB --env mkllc --remote
 npm run seed:mkllc:remote                 # seeds customer/task/route from profiles/mk-llc.json
 npx wrangler secret put ACCESS_TOKEN --env mkllc
@@ -86,7 +86,7 @@ npx wrangler deploy --env mkllc
 ```
 
 The clean `core` build deploys the same way without `--env mkllc` (and its own
-D1 + `stint-core` name).
+D1 + `hourchit-core` name).
 
 ## Known round-one edges (for the next pass)
 

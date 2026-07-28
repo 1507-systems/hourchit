@@ -1,4 +1,4 @@
--- stint schema (Cloudflare D1 / SQLite).
+-- hourchit schema (Cloudflare D1 / SQLite).
 -- Everything is multi-row from day one: many customers, tasks, routes, invoices.
 -- A single-client deployment just happens to have one of each.
 
