@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
 // editor flags this as missing.
-import { GIT_SHA } from './build-info.generated';
+import { CONFIG_SHA, GIT_SHA } from './build-info.generated';
 import { handleLogin, handleLogout, loginPage, requireAuth } from './auth';
 import { loadProfile } from './config/profiles';
 import { mileageRuleFromSettings } from './config/profile';
@@ -43,7 +43,13 @@ app.get('/health', (c) =>
   c.json({
     status: 'ok',
     tenant: c.env.TENANT_PROFILE,
+    // The core commit that is running. A drift check compares this against
+    // this repository's main; it is the application code, not the config.
     version: GIT_SHA,
+    // The tenant-config commit that produced this deploy, for a managed
+    // deployment where a private repo pins the core. '' when the core repo was
+    // built directly. A commit id, never anything about the client.
+    config: CONFIG_SHA,
     // Surfaced so a misconfigured deploy is visible from outside rather than
     // only when someone tries to log in and gets a 503.
     configured: Boolean(c.env.ACCESS_TOKEN),

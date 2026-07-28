@@ -22,6 +22,19 @@ describe('/health', () => {
     expect(body.version).not.toBe('');
   });
 
+  // A managed tenant deploy builds two repos: this core, plus the private repo
+  // that pinned it. The field must always be present so a drift check can tell
+  // "built from the core directly" ('') from "built by a config repo" — an
+  // absent key would be indistinguishable from an old build.
+  it('always reports a config identity field', async () => {
+    const body = (await (await app.request('/health', {}, env())).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(body).toHaveProperty('config');
+    expect(typeof body.config).toBe('string');
+  });
+
   it('reports whether ACCESS_TOKEN is configured', async () => {
     const missing = await (await app.request('/health', {}, env())).json();
     expect((missing as Record<string, unknown>).configured).toBe(false);
