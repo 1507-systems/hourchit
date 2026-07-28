@@ -1,0 +1,16 @@
+{
+  "key": "core",
+  "business": {
+    "name": "Your Company LLC",
+    "address": "123 Main St\nAnytown, ST 00000",
+    "email": "billing@example.com",
+    "phone": "(000) 000-0000"
+  },
+  "settings": {
+    "currency": "USD",
+    "mileageRateCentsPerMile": 70,
+    "afterHoursStart": "16:30",
+    "weekendDays": [0, 6],
+    "invoicePrefix": "INV"
+  }
+}

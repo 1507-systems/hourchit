@@ -1,0 +1,28 @@
+{
+  "name": "stint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portable time-tracking, mileage, and invoicing for a one-person LLC. Cloudflare Worker + D1.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:mkllc": "wrangler deploy --env mkllc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "seed:mkllc:local": "node seed/generate.mjs mk-llc > seed/.generated.sql && wrangler d1 execute DB --env mkllc --local --file seed/.generated.sql",
+    "seed:mkllc:remote": "node seed/generate.mjs mk-llc > seed/.generated.sql && wrangler d1 execute DB --env mkllc --remote --file seed/.generated.sql"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "wrangler": "^3.84.0"
+  }
+}
