@@ -22,3 +22,6 @@ wrangler.tenant.*.jsonc
 
 # Local WIP marker for concurrent Claude Code sessions.
 .reconvoy-skip
+
+# Stamped from the current commit at build time.
+src/build-info.generated.ts

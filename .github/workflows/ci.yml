@@ -29,9 +29,9 @@ jobs:
 
       - run: npm ci
 
-      # Regenerates src/config/profiles.generated.ts from profiles/*.json.
-      # It's gitignored, so nothing downstream works without this.
-      - run: npm run profiles
+      # Regenerates the gitignored profile registry and build stamp. Nothing
+      # downstream compiles without them.
+      - run: npm run codegen
 
       - run: npm run typecheck
 

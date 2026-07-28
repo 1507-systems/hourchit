@@ -7,19 +7,20 @@
   "license": "MIT",
   "scripts": {
     "profiles": "node scripts/generate-profiles.mjs",
-    "predev": "npm run profiles",
+    "predev": "npm run codegen",
     "dev": "wrangler dev",
-    "pretest": "npm run profiles",
+    "pretest": "npm run codegen",
     "test": "vitest run",
-    "pretest:watch": "npm run profiles",
+    "pretest:watch": "npm run codegen",
     "test:watch": "vitest",
-    "pretypecheck": "npm run profiles",
+    "pretypecheck": "npm run codegen",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
-    "predeploy": "npm run profiles",
+    "predeploy": "npm run codegen",
     "deploy": "wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "seed:sql": "node seed/generate.mjs"
+    "seed:sql": "node seed/generate.mjs",
+    "codegen": "node scripts/generate-profiles.mjs && node scripts/generate-build-info.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0"

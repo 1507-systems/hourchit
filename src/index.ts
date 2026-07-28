@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
 import type { Env } from './env';
+// Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
+// editor flags this as missing.
+import { GIT_SHA } from './build-info.generated';
 import { handleLogin, handleLogout, loginPage, requireAuth } from './auth';
 import { loadProfile } from './config/profiles';
 import { mileageRuleFromSettings } from './config/profile';
@@ -31,8 +34,21 @@ import { renderInvoice } from './ui/invoice';
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Health check — unauthenticated.
-app.get('/health', (c) => c.text('ok'));
+// Health check — unauthenticated, and deliberately so: it is what a deploy
+// pipeline reads back to confirm the deploy actually took effect. A deploy
+// that silently no-ops is otherwise indistinguishable from a successful one.
+// It reports only the build identity and which tenant is configured — never
+// the profile contents, which are the client's business.
+app.get('/health', (c) =>
+  c.json({
+    status: 'ok',
+    tenant: c.env.TENANT_PROFILE,
+    version: GIT_SHA,
+    // Surfaced so a misconfigured deploy is visible from outside rather than
+    // only when someone tries to log in and gets a 503.
+    configured: Boolean(c.env.ACCESS_TOKEN),
+  }),
+);
 
 // Auth endpoints (registered before the gate so they stay reachable).
 app.get('/login', (c) => loginPage(c));
