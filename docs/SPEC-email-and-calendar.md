@@ -41,10 +41,20 @@ token is in the path. Anyone holding it can read event titles, times, and
 locations. That is acceptable for this data, but it must be rotatable and it
 must be stated plainly rather than discovered later.
 
-## Transport is pluggable
+## Transport: one seam now, the abstraction later
 
-The one hard requirement: **no email provider is baked in.** Three transports
-must be interchangeable by configuration.
+The pluggable send interface **is wanted**, and it is **deliberately deferred**.
+Building three transports before one of them has ever delivered an invoice is how
+an abstraction ends up shaped around guesses instead of use.
+
+So: ship the concrete Resend path first, and keep every send behind **one module**
+with the message shape below as its argument. That is the seam. Introducing
+`MailSender` later is then a rename and an extra implementation, not a rewrite --
+and by that point the three modes above will have told us what the interface
+actually needs.
+
+The shapes are specified now because they constrain the schema, which is harder
+to change than code.
 
 ```ts
 // One message shape. Transports differ in delivery, not in meaning.
@@ -87,22 +97,39 @@ Inbound arrives two ways and the difference is structural, not cosmetic:
 **Default:** CF Email Routing inbound (free, push, no polling) + **Resend**
 outbound on `hourchit.app`.
 
-### Sending identity: hourchit.app by default
+### Addressing and sending identity
 
-An instance hosted on `hourchit.app` sends as `hourchit.app`, through Resend.
-That is ordinary SaaS behaviour and it means onboarding a tenant requires **no
-DNS work from them at all** — which matters when the target customer is a
-one-person business that does not own a domain and should not have to.
+Every hosted tenant gets an address on a dedicated subdomain:
 
-A tenant bringing their own verified sending domain is a later per-tenant option,
-not a prerequisite. Because transport and sending identity are both per-tenant
-configuration rather than baked in, adding it later costs no rewrite. There is a
-real deliverability argument for a vendor invoicing from its own domain, and it
-is worth revisiting the first time a tenant asks — but it is not a reason to hold
-outbound.
+```
+<tenant>@hosted.hourchit.app      e.g. mattsav@hosted.hourchit.app
+```
 
-**ZeptoMail is deliberately out of scope here.** It belongs to a separate
-workstream, and HourChit must not wait on it.
+That single address does double duty: **CF Email Routing delivers inbound to it**,
+and it is also the **From** for that tenant's outbound. One address, one mental
+model, and no DNS work asked of a tenant who may not own a domain at all.
+
+`hosted.hourchit.app` is deliberately a subdomain rather than the apex. Tenant
+mail is high-volume and machine-generated; keeping it off `hourchit.app` means a
+tenant's deliverability reputation cannot damage HourChit's own.
+
+Three sending modes, in order of preference:
+
+| Mode | From | Credentials | When |
+|---|---|---|---|
+| **Send-as-a-service** (default) | `<tenant>@hosted.hourchit.app` | HourChit's Resend | Any new tenant. Zero setup. |
+| **Tenant's own API key** | tenant's verified domain | tenant's Resend | Tenant wants their own identity and reputation |
+| **Tenant's own SMTP** | tenant's domain | tenant's SMTP account | Tenant already has mail infrastructure |
+
+**A tenant's own domain remains RECOMMENDED, just not required.** An invoice from
+the vendor's own domain is what a finance office expects, and it aligns SPF, DKIM
+and DMARC to the party actually being paid. Say so when onboarding. But it is
+guidance, not a gate — a business with no domain must be able to start today and
+upgrade later without migrating anything.
+
+Resend also carries **HourChit's own** mail: tenant onboarding, system notices,
+operator alerts. That is separate traffic from tenant-facing mail and should use
+a distinct sending identity so the two reputations stay independent.
 
 **Standing rule, non-negotiable:** any email failure that is caught and logged
 MUST also fire ntfy. A swallowed send is indistinguishable from a delivered one,
