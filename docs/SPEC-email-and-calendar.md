@@ -81,51 +81,34 @@ Inbound arrives two ways and the difference is structural, not cosmetic:
 | Transport | Inbound | Outbound | Where it hurts |
 |---|---|---|---|
 | **CF Email Routing** | Email Workers `email()` handler. Native, free, no polling. | `send_email` binding | **The binding can only send to verified destination addresses.** That makes it correct for operator mail to Bryce and useless for invoicing a university. This matches the standing rule that operator mail goes via CF and client-facing mail does not. |
-| **API (ZeptoMail)** | Provider inbound webhook | HTTPS `fetch` | The chosen client-facing vendor. Needs a verified sending domain. See the ZeptoMail section below — it cannot build arbitrary MIME, which constrains calendar invites. |
+| **API (Resend)** | Provider inbound webhook | HTTPS `fetch` | **The default for hosted instances.** Sends on `hourchit.app`, so a new tenant needs no DNS work at all. |
 | **IMAP / SMTP** | Cron + `connect()` from `cloudflare:sockets` | Same | Workers have TCP sockets, so this is *possible*, but it is the most fragile of the three: hand-rolled protocol handling, STARTTLS negotiation, no mature edge-compatible client library, and polling latency. Support it because the interface demands it, but do not make it the default. |
 
-**Default:** CF Email Routing inbound (free, push, no polling) + **ZeptoMail**
-outbound. The abstraction exists so this pairing is a config choice, not a
-rewrite.
+**Default:** CF Email Routing inbound (free, push, no polling) + **Resend**
+outbound on `hourchit.app`.
 
-### ZeptoMail specifics
+### Sending identity: hourchit.app by default
 
-ZeptoMail is the house standard for client-facing transactional mail and
-**Resend is deprecated** — it was retired after an API key scoped to one sending
-domain silently 403'd every send from another. That history is the reason for
-the ntfy rule below.
+An instance hosted on `hourchit.app` sends as `hourchit.app`, through Resend.
+That is ordinary SaaS behaviour and it means onboarding a tenant requires **no
+DNS work from them at all** — which matters when the target customer is a
+one-person business that does not own a domain and should not have to.
 
-Credentials already exist in coffer and are not to be re-minted:
+A tenant bringing their own verified sending domain is a later per-tenant option,
+not a prerequisite. Because transport and sending identity are both per-tenant
+configuration rather than baked in, adding it later costs no rewrite. There is a
+real deliverability argument for a vendor invoicing from its own domain, and it
+is worth revisiting the first time a tenant asks — but it is not a reason to hold
+outbound.
 
-- `communications/zeptomail-token` — the **complete** `Authorization` header
-  value, already carrying the `Zoho-enczapikey ` prefix. Do **not** prefix it
-  again; that is the classic way this integration fails.
-- `communications/zeptomail-smtp-password` — a *different* secret from the API
-  token. SMTP username is the literal string `emailapikey`.
-
-Two prerequisites before a single invoice can go to the University:
-
-1. **A verified sending domain for the LLC.** ZeptoMail needs a Mail Agent with
-   domain verification plus DKIM and SPF records. Bryce controls DNS, so this is
-   work, not a blocker — but the domain must exist first.
-2. **Confirm production access to arbitrary recipients.** As last recorded, the
-   ZeptoMail account's ability to send to arbitrary external addresses was
-   *pending verification*, and the existing token was send-scope-only. Verify
-   against the live dashboard before relying on it; a sandbox-limited account
-   will deliver to Bryce and silently fail to a bridgeport.edu address, which is
-   exactly the failure this project cannot afford.
+**ZeptoMail is deliberately out of scope here.** It belongs to a separate
+workstream, and HourChit must not wait on it.
 
 **Standing rule, non-negotiable:** any email failure that is caught and logged
 MUST also fire ntfy. A swallowed send is indistinguishable from a delivered one,
-and an invoice nobody knows failed is an invoice nobody chases.
-
-### Sending identity
-
-Invoices must come from the **company's own domain**, not from `hourchit.app`.
-An invoice arriving at a university finance office from a third-party app domain
-reads as spam and aligns SPF/DKIM/DMARC to the wrong party. `mattsavsolutions.com`
-is recommended and available; the LLC currently owns no domain, so this is a
-prerequisite, not a detail.
+and an invoice nobody knows failed is an invoice nobody chases. This is not
+theoretical: an API key scoped to the wrong sending domain once 403'd every
+operator notification for weeks while the code logged and moved on.
 
 ## Contacts are data, not configuration
 
@@ -269,21 +252,21 @@ When a booking is confirmed, HourChit emails Matthew the event as an `.ics`
 attachment. This is the answer to subscription lag: it arrives immediately, and
 on iOS an `.ics` attachment offers "Add to Calendar" straight from Mail.
 
-**Constraint, verified against ZeptoMail's API docs:** the send API accepts
-attachments with a custom `mime_type`, but exposes only `htmlbody`/`textbody`
-and **cannot build a raw MIME body or a `multipart/alternative` part.** The
-inline Accept/Decline invitation UI that Gmail and Apple Mail render requires a
-`text/calendar; method=REQUEST` alternative part, so over the ZeptoMail **API**
-the event will arrive as an attachment, not a native invitation.
+**Constraint on any HTTP-API transport.** The inline Accept/Decline invitation
+UI that Gmail and Apple Mail render requires a `text/calendar; method=REQUEST`
+part inside a `multipart/alternative`. Transactional-email APIs generally expose
+`text` and `html` bodies plus file attachments, and not arbitrary MIME structure
+— which was verified for one provider and should be **verified for Resend before
+relying on it**, not assumed either way.
 
-That is acceptable, and arguably correct: Matthew does not need to RSVP to his
-own bookings. The organiser/attendee machinery exists for inviting other people.
-So use **`METHOD:PUBLISH`**, and treat the attachment as a delivery mechanism
-rather than an invitation.
+If the API can only attach, the event arrives as an `.ics` attachment rather than
+a native invitation. That is acceptable, and arguably correct here: Matthew does
+not need to RSVP to his own bookings. The organiser/attendee machinery exists for
+inviting other people. So use **`METHOD:PUBLISH`** and treat the attachment as a
+delivery mechanism rather than an invitation.
 
 If a true invitation is ever wanted — inviting a *client* to an event — the path
-is ZeptoMail over **SMTP** instead of the API, where the MIME structure is ours
-to build. Same vendor, same domain, same DKIM. This is the first concrete
+is **SMTP**, where the MIME structure is ours to build. That is the first concrete
 payoff of making transport pluggable rather than hard-coding one client.
 
 **What emailed `.ics` does badly:** updates and cancellations. A moved booking
@@ -380,19 +363,18 @@ arrived looks exactly like an invoice nobody has paid yet.
    who an inbound sender is.
 1. **Inbound**: transport interface + CF Email Routing. Store threads, messages,
    and attachments; render them in the dashboard with a Files view. **No
-   parsing, no sending.** Unblocked by the domain and ZeptoMail questions, and
-   this alone replaces the mailbox.
-2. **Outbound**: ZeptoMail transport, recipient-policy resolution across
-   To/CC/BCC, outbox with status and retry, ntfy on failure. *Gated on a sending
-   domain and on confirming ZeptoMail production access.*
+   parsing, no sending.** This alone replaces the mailbox.
+2. **Outbound**: Resend transport on `hourchit.app`, recipient-policy resolution
+   across To/CC/BCC, outbox with status and retry, ntfy on failure. No longer
+   gated on anything external.
 3. iCal feed over manually-entered bookings, plus emailed `.ics` on confirm.
 4. Invoice send from the existing invoice rendering.
 5. Classifier and extractor producing drafts; cancellations approval-only.
 6. SMTP transport, which both proves the abstraction holds and unlocks true
    `METHOD:REQUEST` invitations if they are ever wanted.
 
-Stages 0–1 are entirely unblocked and useful shipped alone, which is why they
-come before the outbound work that is waiting on a domain.
+Stages 0–2 are all unblocked now that sending identity is hourchit.app.
+Contacts come first because everything downstream resolves against it.
 
 ## Open questions
 
