@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        hourchit is deliberately small — built for a business of one. Requests
+        HourChit is deliberately small, built for a business of one. Requests
         that add scope (multi-user accounts, roles, an approvals workflow) are
         likely to be declined, not because they're bad but because they belong
         in a different tool. `CONTRIBUTING.md` lists what's already planned.
@@ -33,8 +33,8 @@ body:
         The core never mentions a specific client, so per-business behaviour
         usually belongs in the tenant profile rather than in code.
       options:
-        - "Yes — it's per-business configuration"
-        - "No — it's a change to how the app works for everyone"
+        - "Yes, it's per-business configuration"
+        - "No, it's a change to how the app works for everyone"
         - "Not sure"
     validations:
       required: true

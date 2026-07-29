@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please don't report security vulnerabilities here — use a
+        Please don't report security vulnerabilities here, use a
         [private advisory](https://github.com/1507-systems/hourchit/security/advisories/new)
         instead.
 
@@ -42,7 +42,7 @@ body:
     attributes:
       label: Relevant profile settings
       description: >
-        Mileage rate, after-hours cutoff, weekend days — whatever is relevant.
+        Mileage rate, after-hours cutoff, weekend days, whatever is relevant.
         Redact real addresses, emails, and rates; invented values that still
         reproduce the bug are ideal.
       render: json

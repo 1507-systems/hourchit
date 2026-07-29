@@ -18,6 +18,22 @@ export interface ProfileSettings {
   afterHoursStart: string; // "HH:MM" local cutoff
   weekendDays: number[]; // 0=Sun..6=Sat
   invoicePrefix: string; // e.g. "INV"
+
+  /**
+   * Whether the client reimburses travel. REQUIRED — there is no default.
+   *
+   * Deliberately not optional. A defaulted billing flag is a silent decision,
+   * and the wrong silent decision here puts a charge on an invoice that the
+   * client has already refused. Every profile must say which it is, so setting
+   * up a tenant forces someone to have actually asked.
+   *
+   * SETTING THIS FALSE DOES NOT STOP MILEAGE BEING RECORDED. Trips are still
+   * logged in full, because unreimbursed business mileage is precisely the
+   * mileage that matters for the operator's own deduction — it is deductible to
+   * them BECAUSE nobody paid it back. What the flag controls is narrower: those
+   * trips never become invoice lines.
+   */
+  mileageBillable: boolean;
 }
 
 export interface SeedCustomer {

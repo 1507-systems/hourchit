@@ -161,7 +161,7 @@ export async function getRunningEntry(env: Env): Promise<TimeEntry | null> {
 /** Start a timer on a task. Rejects if one is already running. */
 export async function startTimer(env: Env, taskId: number, nowIso: string): Promise<void> {
   if (await getRunningEntry(env)) {
-    throw new Error('A timer is already running — stop it first.');
+    throw new Error('A timer is already running. Stop it first.');
   }
   await db(env)
     .prepare('INSERT INTO time_entries (task_id, started_at) VALUES (?, ?)')
@@ -287,13 +287,19 @@ export interface InvoiceContents {
 /**
  * Create an invoice from everything currently unbilled for a customer. Marks
  * those time + mileage rows as belonging to the new invoice so they never get
- * billed twice — the cumulative unbilled total resets to zero afterward.
+ * billed twice, the cumulative unbilled total resets to zero afterward.
  */
 export async function createInvoiceForCustomer(
   env: Env,
   customerId: number,
   invoicePrefix: string,
   currency: string,
+  /**
+   * From the tenant profile. Passed rather than defaulted so a deployment whose
+   * client does not reimburse travel cannot accidentally bill it — see
+   * ProfileSettings.mileageBillable.
+   */
+  mileageBillable: boolean,
 ): Promise<Invoice> {
   const time = await unbilledTimeEntries(env, customerId);
   const mileage = await unbilledMileage(env, customerId);
@@ -315,12 +321,12 @@ export async function createInvoiceForCustomer(
     perTask.set(e.taskId, agg);
   }
   const mileageItems: MileageItem[] = mileage.map((m) => ({
-    description: `Mileage — ${m.occurred_local.slice(0, 10)} (${m.reason})`,
+    description: `Mileage: ${m.occurred_local.slice(0, 10)} (${m.reason})`,
     miles: m.miles,
     rateCentsPerMile: m.rate_cents_per_mile,
   }));
 
-  const totals = buildInvoice([...perTask.values()], mileageItems);
+  const totals = buildInvoice([...perTask.values()], mileageItems, { mileageBillable });
 
   const period = invoicePeriod(time, mileage);
 

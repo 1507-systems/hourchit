@@ -1,5 +1,5 @@
 /**
- * Timer + duration accrual. Pure functions over timestamps — no I/O.
+ * Timer + duration accrual. Pure functions over timestamps, no I/O.
  *
  * A time entry is "running" while `stoppedAt` is null. Duration accrues against
  * its task and stays unbilled (invoiceId null) until an invoice is created.
@@ -35,7 +35,7 @@ export function runningEntry(entries: TimeEntry[]): TimeEntry | undefined {
 }
 
 /**
- * Cumulative unbilled seconds for one task — the "how much do I have on the
+ * Cumulative unbilled seconds for one task, the "how much do I have on the
  * clock for this job that I haven't invoiced yet" number.
  */
 export function unbilledSecondsForTask(

@@ -1,4 +1,4 @@
-# hourchit — design notes
+# HourChit design notes
 
 **Date:** 2026-07-28
 **Status:** Round one (initial build)
@@ -10,7 +10,7 @@ basic system to:
 
 1. Track billable time against a task (start/stop, auto date+time, cumulative
    unbilled duration until invoiced).
-2. Log mileage with light automation — attribute business mileage for travel
+2. Log mileage with light automation: attribute business mileage for travel
    between home and the client site **after hours or on weekends**.
 3. Produce an invoice (printed now, possibly emailed later).
 
@@ -41,8 +41,8 @@ rates, mileage rule, and seed data. `TENANT_PROFILE` (a wrangler var) selects
 the active profile; each tenant gets its own wrangler config and its own D1. New
 client = new profile + new config, no core changes.
 
-Because a real profile contains personal data — a business address, a billing
-email, the home address behind the mileage route — and this repository is
+Because a real profile contains personal data (a business address, a billing
+email, the home address behind the mileage route) and this repository is
 public, real profiles live in a separate private repository and are copied in at
 deploy time. `.gitignore` enforces the split. See `docs/TENANTS.md`.
 
@@ -61,6 +61,22 @@ A trip is billable when it starts **at/after the after-hours cutoff (default
 normal daytime commute and not billed. Distance resolves from the route table;
 the `DistanceProvider` interface is where a live Google Maps Distance Matrix
 lookup slots in without touching schema or callers.
+
+**`billable` means chargeable to the customer, not deductible on a tax return.**
+The two are different questions and this field only answers the first. Tax
+deductibility of home-to-worksite travel is governed by
+[Rev. Rul. 99-7](https://www.irs.gov/pub/irs-drop/rr-99-7.pdf) and turns on
+whether the work location is temporary, whether the taxpayer has a regular
+workplace elsewhere, and whether the residence is the principal place of
+business under § 280A(c)(1)(A). Time of day and day of week play no part in it.
+Conflating the two would be an expensive mistake in both directions: billing
+for what the contract doesn't cover, or failing to claim deductible travel
+because the app called it a commute.
+
+The per-mile rate is stored **on each mileage row** at entry time, not read from
+the profile at invoice time. That is deliberate: published mileage rates change,
+sometimes mid-year, and a rate change must not silently reprice trips already
+taken.
 
 ## Deliberately deferred
 

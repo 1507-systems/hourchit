@@ -25,7 +25,7 @@ export function renderInvoice(args: {
 
   const mileageRows = contents.mileage.map(
     (m) => `<tr>
-      <td>Mileage — ${esc(m.occurred_local.slice(0, 10))} <span class="muted">(${esc(m.reason)})</span></td>
+      <td>Mileage: ${esc(m.occurred_local.slice(0, 10))} <span class="muted">(${esc(m.reason)})</span></td>
       <td class="num">${m.miles} mi</td>
       <td class="num">${money(m.rate_cents_per_mile)}/mi</td>
       <td class="num">${money(Math.round((m.miles * m.rate_cents_per_mile)))}</td>

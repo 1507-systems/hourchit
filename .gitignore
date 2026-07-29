@@ -16,8 +16,9 @@ profiles/*.json
 !profiles/core.json
 !profiles/example.json
 
-# Tenant wrangler configs are copied in from the private tenants repo at
-# deploy time and carry client worker names + D1 ids.
+# Tenant wrangler configs live in the private tenants repo now and are no longer
+# copied in here. Kept as a backstop: a client's worker name and D1 id must not
+# land in a public repo because someone deployed the old way out of habit.
 wrangler.tenant.*.jsonc
 
 # Local WIP marker for concurrent Claude Code sessions.

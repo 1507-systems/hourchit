@@ -27,7 +27,7 @@ const profile = JSON.parse(readFileSync(join(here, '..', 'profiles', `${key}.jso
  *
  * Both of these fail silently and expensively if they get through: a `TODO:`
  * string lands as a customer name on a real invoice, and `oneWayMiles: 0`
- * makes every trip bill zero miles — the app looks like it's working while
+ * makes every trip bill zero miles, the app looks like it's working while
  * quietly under-billing every journey. Seeding runs once against a fresh
  * database, so the mistake is also annoying to unwind.
  */
@@ -46,7 +46,7 @@ function unfilledPlaceholders(p) {
   for (const [i, r] of (p.seed?.routes ?? []).entries()) {
     if (!(r.oneWayMiles > 0)) {
       problems.push(
-        `seed.routes[${i}].oneWayMiles is ${JSON.stringify(r.oneWayMiles)} — every trip on this route would bill zero miles`,
+        `seed.routes[${i}].oneWayMiles is ${JSON.stringify(r.oneWayMiles)}, every trip on this route would bill zero miles`,
       );
     }
   }
@@ -62,7 +62,7 @@ if (problems.length > 0) {
 }
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
-const lines = [`-- Generated from profiles/${key}.json — do not edit by hand.`];
+const lines = [`-- Generated from profiles/${key}.json, do not edit by hand.`];
 
 const seed = profile.seed ?? {};
 if (seed.customer) {

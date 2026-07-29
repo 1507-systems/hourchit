@@ -41,7 +41,7 @@ export async function requireAuth(c: Ctx, next: Next): Promise<Response | void> 
   const token = c.env.ACCESS_TOKEN;
   if (!token) {
     return c.text(
-      'hourchit is not configured: ACCESS_TOKEN is unset. Set it as a Worker ' +
+      'HourChit is not configured: ACCESS_TOKEN is unset. Set it as a Worker ' +
         'secret (production) or in .dev.vars (local) before using this app.',
       503,
     );
@@ -55,12 +55,12 @@ export function loginPage(c: Ctx, error = ''): Response {
   return c.html(`<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · hourchit</title>
+<title>Sign in · HourChit</title>
 <style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}
 input,button{font-size:1rem;padding:.6rem;width:100%;box-sizing:border-box;margin:.3rem 0}
 button{background:#1f6feb;color:#fff;border:0;border-radius:.4rem}
 .err{color:#c00}</style></head>
-<body><h1>hourchit</h1>
+<body><h1>HourChit</h1>
 ${error ? `<p class="err">${esc(error)}</p>` : ''}
 <form method="post" action="/login">
 <label>Access token<input type="password" name="token" autofocus></label>
