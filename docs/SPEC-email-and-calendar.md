@@ -49,7 +49,8 @@ must be interchangeable by configuration.
 ```ts
 // One message shape. Transports differ in delivery, not in meaning.
 interface OutboundMessage {
-  to: Address[]; replyTo?: Address;
+  to: Address[]; cc?: Address[]; bcc?: Address[];   // all three, all multi
+  replyTo?: Address;
   subject: string; text: string; html?: string;
   attachments?: Attachment[];          // invoice PDFs
   idempotencyKey: string;              // a retry must not double-send
@@ -125,6 +126,68 @@ An invoice arriving at a university finance office from a third-party app domain
 reads as spam and aligns SPF/DKIM/DMARC to the wrong party. `mattsavsolutions.com`
 is recommended and available; the LLC currently owns no domain, so this is a
 prerequisite, not a detail.
+
+## Contacts are data, not configuration
+
+The two roles above cannot live in a config file. People leave, get promoted, and
+go on holiday, and when Deb hands scheduling to somebody else Matthew must be
+able to fix it himself at 7pm without a deploy. So contacts are a managed table
+with a screen: add, edit, deactivate, change role.
+
+**Deactivate, never delete.** A cancellation email from Deb in March must still
+resolve to Deb in December, after she has left. Deleting the row orphans the
+evidence that a booking was validly cancelled — which, given MSA 1.6(b), is the
+record that decides whether an evening gets paid.
+
+One person can hold more than one role. Deb Ryan is both a §2.5 booking contact
+and the signatory on the SOW, and that is normal rather than a modelling error.
+
+### Recipient policy: who lands on To, CC, and BCC
+
+Every outbound kind resolves its recipients from the contact list at send time,
+rather than hard-coding "invoices go to AP". The resolved set is shown before
+sending and can be overridden per message.
+
+| Kind | To | CC | BCC |
+|---|---|---|---|
+| Invoice | AP contacts marked primary | remaining AP contacts | Matthew |
+| Booking confirmation | the contact who requested it | other booking contacts | Matthew |
+| Cancellation confirmation | the contact who cancelled | other booking contacts | Matthew |
+| Change order | booking contacts | — | Matthew |
+
+Two deliberate choices in that table:
+
+**BCC to Matthew on everything.** He gets a copy in his own mail without the
+customer seeing a self-addressed message, so the record survives even if the app
+does. This is the cheap insurance against HourChit being the only place a sent
+invoice exists.
+
+**Other contacts in the role are CC'd, not omitted.** SOW 2.5 says *either* Deb
+or Trina may bind the University. If Trina cancels and Deb never sees the
+confirmation, the University's own left hand is uninformed and the dispute that
+follows is one Matthew has to win with records. Copying the role costs nothing.
+
+Addresses that are not contacts can still be added ad hoc per send — a one-off
+CC to a procurement officer should not require creating a permanent contact.
+
+## Files belong in the dashboard
+
+The setup memo tells Matthew to collect a specific pile of paper from the
+University: a conflict-of-interest policy or disclosure form, a vendor onboarding
+packet, a W-9 request, their insurance requirements, purchase orders. It also
+tells him that anything agreed verbally should be followed up in writing. Those
+documents arrive as email attachments, and a system that stores the covering
+message but drops the attachment has kept the least useful half.
+
+So the dashboard gets a **Files** view: every attachment, inbound and outbound,
+listed with the customer, the thread it arrived on, who sent it, and when.
+Bytes live in R2; the row lives in D1. Outbound invoice PDFs land in the same
+place, so "what exactly did we send them in March" is one query rather than an
+archaeology exercise.
+
+This is also what makes the no-portal decision tenable. The University does not
+get a login, so the documents flow through email — and email is only a filing
+system if something is actually filing.
 
 ## Inbound: parse to a draft, never to a fact
 
@@ -228,31 +291,77 @@ and he re-subscribes.
 ## Data model (D1)
 
 ```
-contacts        id, customer_id, name, email, role('booking'|'ap'), active
+contacts        id, customer_id, name, email, title, phone, active,
+                created_at, deactivated_at
+contact_roles   contact_id, role('booking'|'ap'|'signatory'), is_primary
+                -- many-to-many: Deb is both a booking contact and the signatory
 threads         id, customer_id, subject, last_message_at
-messages        id, thread_id, direction, message_id, in_reply_to, from, to,
-                subject, body_text, raw_r2_key, received_at, transport
+messages        id, thread_id, direction, message_id, in_reply_to,
+                from_addr, to_addrs(json), cc_addrs(json), bcc_addrs(json),
+                subject, body_text, raw_r2_key, received_at, transport,
+                send_status, send_error, idempotency_key
+attachments     id, message_id, filename, mime_type, bytes, r2_key,
+                direction, created_at
 bookings        id, customer_id, starts_at, ends_at, location, title,
-                status('confirmed'|'cancelled'), ical_uid, min_callout_hours
+                status('confirmed'|'cancelled'), ical_uid, sequence,
+                min_callout_hours
 booking_drafts  id, message_id, proposed(json), confidence,
                 kind('create'|'change'|'cancel'), resolved_at, resolved_by
 cal_tokens      token, created_at, revoked_at
 ```
 
-Raw MIME to **R2**, not D1 — a D1 row is the wrong place for a multi-megabyte
-attachment, and the raw copy is what proves what a contact actually wrote.
+Notes on three of those:
+
+- **`contact_roles` is a separate table, not a column.** One person holds several
+  roles, and a single `role` field forces a duplicate row per role — which then
+  drifts when an address changes.
+- **Raw MIME and attachment bytes go to R2**, never D1. A D1 row is the wrong
+  home for a multi-megabyte PDF, and the raw copy is what proves what a contact
+  actually wrote.
+- **`send_status` / `send_error` / `idempotency_key` on messages** are what make
+  outbound a production path rather than a fire-and-hope. Every send is
+  recorded before it is attempted, so a failure is a row you can see and retry
+  rather than an absence you never notice.
+
+## Production, not a demo
+
+The failure this system cannot have is a silent one. An invoice that never
+arrived looks exactly like an invoice nobody has paid yet.
+
+- **No swallowed failures.** Every caught send error writes `send_error` AND
+  fires ntfy. This is the house rule, and it exists because a Resend key scoped
+  to the wrong domain 403'd every operator notification for weeks while the code
+  logged and moved on.
+- **Idempotent sends.** Invoice *n* has one idempotency key. A retry, a double
+  click, or a queue redelivery must not produce two invoices at a university's
+  accounts payable.
+- **Inbound is acknowledged only after it is stored.** Losing an email because
+  the write failed after the 250 OK is unrecoverable — the sender believes it
+  was delivered.
+- **A visible outbox.** Queued, sent, failed, with the error and a retry button.
+  If Matthew cannot see that Tuesday's invoice failed, the system has not told
+  him anything.
 
 ## Build order
 
-1. Transport interfaces + CF Email Routing inbound + ZeptoMail outbound. Store
-   and display threads. **No parsing.** This alone replaces the mailbox.
-2. iCal feed over manually-entered bookings, plus emailed `.ics` on confirm.
-3. Invoice send from existing invoice rendering.
-4. Classifier and extractor producing drafts, cancellations approval-only.
-5. SMTP transport, which both proves the abstraction holds and unlocks true
+0. **Contacts + roles CRUD.** No external dependency, and everything downstream
+   resolves recipients from it. Build it first because stage 1 needs it to know
+   who an inbound sender is.
+1. **Inbound**: transport interface + CF Email Routing. Store threads, messages,
+   and attachments; render them in the dashboard with a Files view. **No
+   parsing, no sending.** Unblocked by the domain and ZeptoMail questions, and
+   this alone replaces the mailbox.
+2. **Outbound**: ZeptoMail transport, recipient-policy resolution across
+   To/CC/BCC, outbox with status and retry, ntfy on failure. *Gated on a sending
+   domain and on confirming ZeptoMail production access.*
+3. iCal feed over manually-entered bookings, plus emailed `.ics` on confirm.
+4. Invoice send from the existing invoice rendering.
+5. Classifier and extractor producing drafts; cancellations approval-only.
+6. SMTP transport, which both proves the abstraction holds and unlocks true
    `METHOD:REQUEST` invitations if they are ever wanted.
 
-Stages 1–3 are useful shipped alone, which is the point of the ordering.
+Stages 0–1 are entirely unblocked and useful shipped alone, which is why they
+come before the outbound work that is waiting on a domain.
 
 ## Open questions
 
