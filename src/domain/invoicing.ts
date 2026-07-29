@@ -35,11 +35,31 @@ export interface InvoiceTotals {
   totalCents: number;
 }
 
+export interface InvoiceOptions {
+  /**
+   * Whether travel is billable to this client. REQUIRED, and the argument
+   * itself is required — no default, no optional parameter.
+   *
+   * Callers must state it, because the failure mode is asymmetric: defaulting
+   * to billable puts a charge on an invoice the client has already refused,
+   * which surfaces as a rejection weeks later. Making it explicit costs one
+   * argument at each call site and removes the possibility entirely.
+   *
+   * When false, mileage is omitted from the invoice rather than listed at zero.
+   * A $0.00 line invites an accounts-payable clerk to query it, and the trips
+   * are already preserved in the mileage log where the deduction is actually
+   * claimed — so showing the client buys nothing and costs a phone call.
+   */
+  mileageBillable: boolean;
+}
+
 /** Build the line items and totals for an invoice. */
 export function buildInvoice(
   timeByTask: TaskTimeAggregate[],
   mileage: MileageItem[],
+  options: InvoiceOptions,
 ): InvoiceTotals {
+  const { mileageBillable } = options;
   const lines: InvoiceLine[] = [];
 
   for (const t of timeByTask) {
@@ -56,6 +76,7 @@ export function buildInvoice(
   }
 
   for (const m of mileage) {
+    if (!mileageBillable) break;
     if (m.miles <= 0) continue;
     lines.push({
       kind: 'mileage',

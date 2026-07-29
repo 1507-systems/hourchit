@@ -294,6 +294,12 @@ export async function createInvoiceForCustomer(
   customerId: number,
   invoicePrefix: string,
   currency: string,
+  /**
+   * From the tenant profile. Passed rather than defaulted so a deployment whose
+   * client does not reimburse travel cannot accidentally bill it — see
+   * ProfileSettings.mileageBillable.
+   */
+  mileageBillable: boolean,
 ): Promise<Invoice> {
   const time = await unbilledTimeEntries(env, customerId);
   const mileage = await unbilledMileage(env, customerId);
@@ -320,7 +326,7 @@ export async function createInvoiceForCustomer(
     rateCentsPerMile: m.rate_cents_per_mile,
   }));
 
-  const totals = buildInvoice([...perTask.values()], mileageItems);
+  const totals = buildInvoice([...perTask.values()], mileageItems, { mileageBillable });
 
   const period = invoicePeriod(time, mileage);
 

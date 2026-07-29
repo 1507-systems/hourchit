@@ -192,6 +192,7 @@ app.post('/invoices', async (c) => {
       customerId,
       profile.settings.invoicePrefix,
       profile.settings.currency,
+      profile.settings.mileageBillable,
     );
     return c.redirect(`/invoices/${invoice.id}`);
   } catch (e) {

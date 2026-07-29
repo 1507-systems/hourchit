@@ -9,8 +9,12 @@
   "settings": {
     "currency": "USD",
     "mileageRateCentsPerMile": 70,
+    "mileageBillable": true,
     "afterHoursStart": "16:30",
-    "weekendDays": [0, 6],
+    "weekendDays": [
+      0,
+      6
+    ],
     "invoicePrefix": "EX"
   },
   "seed": {
