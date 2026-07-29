@@ -1,0 +1,175 @@
+/**
+ * Storage for inbound mail. Thin over D1 + R2; every judgement call lives in
+ * domain/inbound.ts and is tested there.
+ */
+import PostalMime, { type Email } from 'postal-mime';
+import type { Env } from './env';
+import {
+  addressList,
+  bareAddress,
+  matchThread,
+  resolveSender,
+  subjectKey,
+  type ThreadCandidate,
+} from './domain/inbound';
+
+export interface StoredMessage {
+  messageRowId: number;
+  threadId: number;
+  duplicate: boolean;
+}
+
+/** Parse raw RFC822 into the fields we persist. */
+export async function parseRaw(raw: ArrayBuffer | Uint8Array | string): Promise<Email> {
+  return PostalMime.parse(raw as never);
+}
+
+/**
+ * Persist one inbound message.
+ *
+ * Idempotent on Message-ID. Cloudflare's delivery guarantee is at-least-once, so
+ * the same mail can arrive twice; the unique index means the second attempt is a
+ * no-op instead of a duplicate thread entry.
+ */
+export async function storeInbound(
+  env: Env,
+  email: Email,
+  opts: { transport: string; rawBytes?: ArrayBuffer } = { transport: 'cf-email-routing' },
+): Promise<StoredMessage> {
+  const db = env.DB;
+  const messageId = email.messageId ? email.messageId.trim() : null;
+
+  if (messageId) {
+    const existing = await db
+      .prepare('SELECT id, thread_id FROM messages WHERE message_id = ?')
+      .bind(messageId)
+      .first<{ id: number; thread_id: number }>();
+    if (existing) {
+      return { messageRowId: existing.id, threadId: existing.thread_id, duplicate: true };
+    }
+  }
+
+  const fromAddr = bareAddress(email.from?.address ?? '');
+
+  // Deactivated contacts are included on purpose -- see resolveSender.
+  const contacts = await db
+    .prepare('SELECT id, customer_id, email FROM contacts')
+    .all<{ id: number; customer_id: number; email: string }>();
+  const { contactId, customerId } = resolveSender(fromAddr, contacts.results ?? []);
+
+  const subject = email.subject ?? '';
+  const key = subjectKey(subject);
+
+  // Only the ids we might thread against, not every message ever received.
+  const refIds = [
+    email.inReplyTo?.trim(),
+    ...(email.references ? email.references.match(/<[^>]+>/g) ?? [] : []),
+  ].filter((v): v is string => !!v);
+
+  const knownMessageThread = new Map<string, number>();
+  if (refIds.length > 0) {
+    const placeholders = refIds.map(() => '?').join(',');
+    const rows = await db
+      .prepare(`SELECT message_id, thread_id FROM messages WHERE message_id IN (${placeholders})`)
+      .bind(...refIds)
+      .all<{ message_id: string; thread_id: number }>();
+    for (const r of rows.results ?? []) knownMessageThread.set(r.message_id, r.thread_id);
+  }
+
+  let candidatesBySubject: ThreadCandidate[] = [];
+  if (key.length > 0) {
+    const rows = await db
+      .prepare(
+        `SELECT id, customer_id, subject_key FROM threads
+         WHERE subject_key = ? AND customer_id IS ${customerId === null ? 'NULL' : '?'}
+         ORDER BY last_message_at DESC LIMIT 20`,
+      )
+      .bind(...(customerId === null ? [key] : [key, customerId]))
+      .all<ThreadCandidate>();
+    candidatesBySubject = rows.results ?? [];
+  }
+
+  let threadId = matchThread({
+    inReplyTo: email.inReplyTo ?? null,
+    references: email.references ?? null,
+    subject,
+    customerId,
+    knownMessageThread,
+    candidatesBySubject,
+  });
+
+  if (threadId === null) {
+    const created = await db
+      .prepare(
+        `INSERT INTO threads (customer_id, subject, subject_key, last_message_at)
+         VALUES (?, ?, ?, datetime('now')) RETURNING id`,
+      )
+      .bind(customerId, subject, key)
+      .first<{ id: number }>();
+    threadId = created!.id;
+  } else {
+    await db
+      .prepare("UPDATE threads SET last_message_at = datetime('now') WHERE id = ?")
+      .bind(threadId)
+      .run();
+  }
+
+  // The raw copy is the evidence of what a contact actually wrote. Stored before
+  // the row so a message row never claims a raw key that does not exist.
+  let rawKey: string | null = null;
+  if (opts.rawBytes && env.MAIL_RAW) {
+    rawKey = `raw/${threadId}/${crypto.randomUUID()}.eml`;
+    await env.MAIL_RAW.put(rawKey, opts.rawBytes);
+  }
+
+  const inserted = await db
+    .prepare(
+      `INSERT INTO messages
+        (thread_id, direction, message_id, in_reply_to, references_raw,
+         from_addr, to_addrs, cc_addrs, subject, body_text, contact_id,
+         raw_r2_key, transport)
+       VALUES (?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
+    )
+    .bind(
+      threadId,
+      messageId,
+      email.inReplyTo ?? null,
+      email.references ?? '',
+      fromAddr,
+      JSON.stringify(addressList((email.to ?? []).map((t) => t.address).join(','))),
+      JSON.stringify(addressList((email.cc ?? []).map((t) => t.address).join(','))),
+      subject,
+      email.text ?? '',
+      contactId,
+      rawKey,
+      opts.transport,
+    )
+    .first<{ id: number }>();
+
+  const messageRowId = inserted!.id;
+
+  for (const att of email.attachments ?? []) {
+    const bytes =
+      att.content instanceof ArrayBuffer
+        ? att.content.byteLength
+        : typeof att.content === 'string'
+          ? att.content.length
+          : 0;
+    let r2Key: string | null = null;
+    if (env.MAIL_RAW && att.content instanceof ArrayBuffer) {
+      r2Key = `att/${messageRowId}/${att.filename || 'attachment'}`;
+      await env.MAIL_RAW.put(r2Key, att.content);
+    }
+    // filed_at is left NULL: filing to the client document store is a separate
+    // retryable step, and a document-store outage must not reject the email.
+    await env.DB.prepare(
+      `INSERT INTO attachments (message_id, filename, mime_type, bytes, direction, r2_key)
+       VALUES (?, ?, ?, ?, 'inbound', ?)`,
+    )
+      .bind(messageRowId, att.filename ?? '', att.mimeType ?? 'application/octet-stream', bytes, r2Key)
+      .run();
+  }
+
+  return { messageRowId, threadId, duplicate: false };
+}

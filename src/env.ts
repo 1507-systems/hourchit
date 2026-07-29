@@ -9,4 +9,13 @@ export interface Env {
    * Local: put it in `.dev.vars` (gitignored; see `.dev.vars.example`).
    */
   ACCESS_TOKEN?: string;
+  /**
+   * Domain that tenant mail arrives on. Addresses are
+   * <TENANT_PROFILE>@<HOSTED_MAIL_DOMAIN>. Defaulted in code so a tenant config
+   * that omits it still rejects foreign mail rather than accepting everything.
+   */
+  HOSTED_MAIL_DOMAIN?: string;
+  /** R2 bucket for raw MIME and attachment bytes. Optional: without it, mail is
+   * still stored, minus the raw copy. */
+  MAIL_RAW?: R2Bucket;
 }
