@@ -181,13 +181,40 @@ message but drops the attachment has kept the least useful half.
 
 So the dashboard gets a **Files** view: every attachment, inbound and outbound,
 listed with the customer, the thread it arrived on, who sent it, and when.
-Bytes live in R2; the row lives in D1. Outbound invoice PDFs land in the same
-place, so "what exactly did we send them in March" is one query rather than an
-archaeology exercise.
+Outbound invoice PDFs land in the same place, so "what exactly did we send them
+in March" is one query rather than an archaeology exercise.
 
 This is also what makes the no-portal decision tenable. The University does not
 get a login, so the documents flow through email — and email is only a filing
 system if something is actually filing.
+
+### Where the bytes live: WorkDrive, not R2
+
+Client documents go to **Zoho WorkDrive, into that client's own folder**, not
+into R2. Matthew already has WorkDrive, already has the app on his phone, and
+already has a folder per client. Filing into it means the documents are his —
+readable, searchable, and shareable from the phone without HourChit being
+involved, and still there if HourChit is not.
+
+R2 keeps one thing WorkDrive should not have: the **raw MIME** of each message.
+That is an internal evidence artifact, not a document anyone browses, and it
+exists to prove what a contact actually wrote.
+
+| Artifact | Home | Why |
+|---|---|---|
+| Client documents, invoice PDFs, inbound attachments | WorkDrive, per-client folder | Matthew's, phone-accessible, outlives the app |
+| Raw MIME | R2 | Evidence, not a document; nobody browses it |
+| Metadata, threads, index | D1 | Queryable |
+
+**This needs a WorkDrive scope HourChit does not have, and that is a real
+decision rather than a detail.** The existing WorkDrive integration lives in
+`client-portal` and is deliberately `WorkDrive.files.READ` and nothing else —
+it displays a document tree and must never write. HourChit files documents, so
+it needs `READ` plus `CREATE`. These are **separate OAuth grants for separate
+applications**, so this does not reverse the portal's decision; the portal stays
+read-only and should. But HourChit's grant must be scoped just as deliberately:
+create and read, no DELETE, no `.ALL`. An integration that files executed
+agreements should not be able to remove them.
 
 ## Inbound: parse to a draft, never to a fact
 
@@ -300,8 +327,12 @@ messages        id, thread_id, direction, message_id, in_reply_to,
                 from_addr, to_addrs(json), cc_addrs(json), bcc_addrs(json),
                 subject, body_text, raw_r2_key, received_at, transport,
                 send_status, send_error, idempotency_key
-attachments     id, message_id, filename, mime_type, bytes, r2_key,
-                direction, created_at
+attachments     id, message_id, filename, mime_type, bytes, direction,
+                workdrive_file_id, workdrive_folder_id, filed_at, file_error,
+                created_at
+                -- filed_at NULL means "received but not yet in WorkDrive".
+                -- Filing is a separate, retryable step: a WorkDrive outage
+                -- must not reject the email that carried the document.
 bookings        id, customer_id, starts_at, ends_at, location, title,
                 status('confirmed'|'cancelled'), ical_uid, sequence,
                 min_callout_hours
