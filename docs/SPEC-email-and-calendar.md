@@ -90,12 +90,35 @@ Inbound arrives two ways and the difference is structural, not cosmetic:
 
 | Transport | Inbound | Outbound | Where it hurts |
 |---|---|---|---|
-| **CF Email Routing** | Email Workers `email()` handler. Native, free, no polling. | `send_email` binding | **The binding can only send to verified destination addresses.** That makes it correct for operator mail to Bryce and useless for invoicing a university. This matches the standing rule that operator mail goes via CF and client-facing mail does not. |
-| **API (Resend)** | Provider inbound webhook | HTTPS `fetch` | **The default for hosted instances.** Sends on `hourchit.app`, so a new tenant needs no DNS work at all. |
-| **IMAP / SMTP** | Cron + `connect()` from `cloudflare:sockets` | Same | Workers have TCP sockets, so this is *possible*, but it is the most fragile of the three: hand-rolled protocol handling, STARTTLS negotiation, no mature edge-compatible client library, and polling latency. Support it because the interface demands it, but do not make it the default. |
+| **Cloudflare Email Service** | Email Routing `email()` handler. Native, free, unlimited, no polling. | Email Sending: REST API, Workers binding, **or SMTP** | **The default, and the whole stack.** Verified-destinations-only applies *before* a sending domain is onboarded; after onboarding, sends go to any recipient. Needs Workers Paid. |
+| **API (Resend)** | Provider inbound webhook | HTTPS `fetch` | Fallback, and the escape hatch if Cloudflare deliverability ever disappoints. Keeps the connector honest by being a second implementation. |
+| **Tenant-supplied SMTP** | n/a | Tenant's own SMTP account | For a tenant who already has mail infrastructure and wants their own identity. |
 
-**Default:** CF Email Routing inbound (free, push, no polling) + **Resend**
-outbound on `hourchit.app`.
+**Default: Cloudflare end to end.** Email Routing in, Email Sending out. One
+vendor, one config surface, no third-party API key to rotate or leak.
+
+Numbers, from Cloudflare's published pricing: inbound is **unlimited and free**;
+outbound includes **3,000 emails per month** on Workers Paid, then $0.35 per
+1,000. A one-person service business sends a few dozen invoices and confirmations
+a month, so outbound is effectively free and stays that way for a long time.
+
+Sends to verified destination addresses are free on any plan and do not count
+against the quota, which conveniently means **operator mail costs nothing** and
+the existing rule that operator mail goes via Cloudflare is unchanged.
+
+**Prerequisite: Workers Paid.** Arbitrary-recipient sending is not available on
+the free plan.
+
+Two further reasons this beat the alternative, both of which remove problems the
+spec previously had to work around:
+
+- **SMTP is offered natively.** The calendar section below needed SMTP for a true
+  `METHOD:REQUEST` invitation, because transactional HTTP APIs generally cannot
+  build a `multipart/alternative`. Cloudflare provides SMTP alongside the REST
+  API and Workers binding, so that stops being a reason to add a second vendor.
+- **A suppression list is built in**, and sends it blocks do not count toward the
+  quota. Hard bounces are handled by the platform rather than by us discovering
+  them.
 
 ### Addressing and sending identity
 
@@ -117,8 +140,8 @@ Three sending modes, in order of preference:
 
 | Mode | From | Credentials | When |
 |---|---|---|---|
-| **Send-as-a-service** (default) | `<tenant>@hosted.hourchit.app` | HourChit's Resend | Any new tenant. Zero setup. |
-| **Tenant's own API key** | tenant's verified domain | tenant's Resend | Tenant wants their own identity and reputation |
+| **Send-as-a-service** (default) | `<tenant>@hosted.hourchit.app` | Cloudflare Email Sending | Any new tenant. Zero setup. |
+| **Tenant's own domain** | tenant's verified domain | onboarded to Cloudflare, or the tenant's own provider key | Tenant wants their own identity and reputation |
 | **Tenant's own SMTP** | tenant's domain | tenant's SMTP account | Tenant already has mail infrastructure |
 
 **A tenant's own domain remains RECOMMENDED, just not required.** An invoice from
@@ -127,9 +150,10 @@ and DMARC to the party actually being paid. Say so when onboarding. But it is
 guidance, not a gate — a business with no domain must be able to start today and
 upgrade later without migrating anything.
 
-Resend also carries **HourChit's own** mail: tenant onboarding, system notices,
-operator alerts. That is separate traffic from tenant-facing mail and should use
-a distinct sending identity so the two reputations stay independent.
+**HourChit's own** mail — tenant onboarding, system notices, operator alerts —
+also goes through Cloudflare, from a distinct identity on `hourchit.app` rather
+than `hosted.hourchit.app`, so the two reputations stay independent. Operator
+mail to a verified destination is free and outside the quota.
 
 **Standing rule, non-negotiable:** any email failure that is caught and logged
 MUST also fire ntfy. A swallowed send is indistinguishable from a delivered one,
@@ -293,8 +317,9 @@ inviting other people. So use **`METHOD:PUBLISH`** and treat the attachment as a
 delivery mechanism rather than an invitation.
 
 If a true invitation is ever wanted — inviting a *client* to an event — the path
-is **SMTP**, where the MIME structure is ours to build. That is the first concrete
-payoff of making transport pluggable rather than hard-coding one client.
+is **SMTP**, where the MIME structure is ours to build. Cloudflare offers SMTP
+alongside the REST API and the Workers binding, so this no longer means adding a
+vendor: it is the same product, a different door.
 
 **What emailed `.ics` does badly:** updates and cancellations. A moved booking
 sends a second file, and whether the client merges it by `UID` + `SEQUENCE` or
@@ -391,9 +416,9 @@ arrived looks exactly like an invoice nobody has paid yet.
 1. **Inbound**: transport interface + CF Email Routing. Store threads, messages,
    and attachments; render them in the dashboard with a Files view. **No
    parsing, no sending.** This alone replaces the mailbox.
-2. **Outbound**: Resend transport on `hourchit.app`, recipient-policy resolution
-   across To/CC/BCC, outbox with status and retry, ntfy on failure. No longer
-   gated on anything external.
+2. **Outbound**: Cloudflare Email Sending from `<tenant>@hosted.hourchit.app`,
+   recipient-policy resolution across To/CC/BCC, outbox with status and retry,
+   ntfy on failure. Gated only on Workers Paid and onboarding the sending domain.
 3. iCal feed over manually-entered bookings, plus emailed `.ics` on confirm.
 4. Invoice send from the existing invoice rendering.
 5. Classifier and extractor producing drafts; cancellations approval-only.
