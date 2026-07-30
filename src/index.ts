@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { handleEmail } from './email';
 import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
 // editor flags this as missing.
@@ -227,4 +228,12 @@ function readFlash(ok?: string, err?: string) {
   return undefined;
 }
 
-export default app;
+// The Hono app is exported by name so tests can drive it with app.request()
+// without going through the Worker entry object.
+export { app };
+
+// Both entry points. `email` is Cloudflare Email Routing; see src/email.ts.
+export default {
+  fetch: app.fetch,
+  email: handleEmail,
+};
