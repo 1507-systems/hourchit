@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { handleEmail } from './email';
 import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
@@ -14,10 +14,10 @@ import {
   tokenLoginPage,
 } from './auth';
 import { loadProfile } from './config/profiles';
-import { mileageRuleFromSettings } from './config/profile';
+import { mileageRuleFromSettings, type TenantProfile } from './config/profile';
 import { classifyTrip, routeTableDistance } from './domain/mileage';
 import { durationSeconds } from './domain/time';
-import { amountCentsFor, billableSeconds } from './domain/billing';
+import { amountCentsFor, billableSeconds, type BillingTerms } from './domain/billing';
 import { mileageAmountCents } from './domain/money';
 import {
   createInvoiceForCustomer,
@@ -26,6 +26,7 @@ import {
   getRoute,
   getTask,
   invoiceContents,
+  invoiceLines,
   listCustomers,
   listInvoices,
   listRecentMileage,
@@ -40,9 +41,26 @@ import {
   getRunningEntry,
 } from './db';
 import { renderDashboard, TaskView } from './ui/dashboard';
+import { renderMailList, renderThread } from './ui/mail';
+import { getThread, listThreads, storeOutbound, threadMessages } from './inbox';
+import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
 
 const app = new Hono<{ Bindings: Env }>();
+
+/**
+ * The tenant's billing terms in one place, so every caller reads the same
+ * fields. weekendDays and timezone travel with the terms because a day-split
+ * minimum cannot be resolved without them.
+ */
+function termsFor(profile: TenantProfile): BillingTerms {
+  return {
+    incrementMinutes: profile.settings.billingIncrementMinutes,
+    minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
+    weekendDays: profile.settings.weekendDays,
+    timezone: profile.settings.timezone,
+  };
+}
 
 // Health check, unauthenticated, and deliberately so: it is what a deploy
 // pipeline reads back to confirm the deploy actually took effect. A deploy
@@ -84,10 +102,7 @@ app.use('*', requireAuth);
 app.get('/', async (c) => {
   const env = c.env;
   const profile = loadProfile(env.TENANT_PROFILE);
-  const terms = {
-    incrementMinutes: profile.settings.billingIncrementMinutes,
-    minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
-  };
+  const terms = termsFor(profile);
   const customers = await listCustomers(env);
   const customer = customers[0] ?? null;
   const tasks = customer ? await listTasks(env, customer.id) : [];
@@ -126,7 +141,7 @@ app.get('/', async (c) => {
     billableByTask.set(
       e.taskId,
       (billableByTask.get(e.taskId) ?? 0) +
-        billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms),
+        billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms, e.startedAt),
     );
   }
   const timeCents = taskViews.reduce(
@@ -214,6 +229,97 @@ app.post('/mileage', async (c) => {
   return c.redirect('/?ok=' + encodeURIComponent(`Logged ${miles} mi: ${verdict}`));
 });
 
+/**
+ * The tenant's own outward address, <tenant>@<hosted mail domain>.
+ *
+ * Distinct from LOGIN_MAIL_FROM, which is HourChit's product mail to the
+ * operator and rides 1507 Systems' domain. Client-facing mail must come from
+ * the tenant's identity, because the client has a relationship with the tenant.
+ */
+function flashHtml(c: Context<{ Bindings: Env }>): string {
+  const ok = c.req.query('ok');
+  const err = c.req.query('err');
+  if (err) return `<p class="err">${escapeText(err)}</p>`;
+  if (ok) return `<p class="ok">${escapeText(ok)}</p>`;
+  return '';
+}
+
+function escapeText(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) =>
+    ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '"' ? '&quot;' : '&#39;',
+  );
+}
+
+function tenantAddress(c: Context<{ Bindings: Env }>): string {
+  const domain = c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app';
+  return `${c.env.TENANT_PROFILE}@${domain}`;
+}
+
+app.get('/mail', async (c) => {
+  const threads = await listThreads(c.env);
+  return c.html(renderMailList(threads, flashHtml(c)));
+});
+
+app.get('/mail/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  const thread = await getThread(c.env, id);
+  if (!thread) return c.notFound();
+  const messages = await threadMessages(c.env, id);
+  // Reply to the last INBOUND sender: replying to our own last outbound would
+  // mail ourselves, and picking an arbitrary recipient is what turns a
+  // transactional thread view into a mail client.
+  const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound');
+  return c.html(
+    renderThread(id, thread.subject, messages, lastInbound?.from_addr ?? '', flashHtml(c)),
+  );
+});
+
+app.post('/mail/:id/reply', async (c) => {
+  const id = Number(c.req.param('id'));
+  const body = await c.req.parseBody();
+  const text = String(body.body ?? '').trim();
+  if (!text) return c.redirect(`/mail/${id}?err=` + encodeURIComponent('Write something first'));
+
+  const thread = await getThread(c.env, id);
+  if (!thread) return c.notFound();
+  const messages = await threadMessages(c.env, id);
+  const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound');
+  if (!lastInbound) {
+    return c.redirect(`/mail/${id}?err=` + encodeURIComponent('Nothing to reply to yet'));
+  }
+
+  const from = tenantAddress(c);
+  const subject = /^re:/i.test(thread.subject) ? thread.subject : `Re: ${thread.subject}`;
+
+  try {
+    const { messageId } = await sendMail(c.env.EMAIL, from, {
+      to: lastInbound.from_addr,
+      subject,
+      text,
+      inReplyTo: lastInbound.message_id,
+      references: lastInbound.references_raw,
+    });
+    // Recorded only AFTER a successful send. A row claiming we sent something
+    // we did not would later read as proof of a notice that never left.
+    await storeOutbound(c.env, {
+      threadId: id,
+      messageId,
+      inReplyTo: lastInbound.message_id,
+      references: [lastInbound.references_raw, lastInbound.message_id]
+        .filter(Boolean)
+        .join(' ')
+        .trim(),
+      fromAddr: from,
+      toAddrs: [lastInbound.from_addr],
+      subject,
+      bodyText: text,
+    });
+    return c.redirect(`/mail/${id}?ok=` + encodeURIComponent('Reply sent'));
+  } catch (e) {
+    return c.redirect(`/mail/${id}?err=` + encodeURIComponent((e as Error).message));
+  }
+});
+
 app.post('/invoices', async (c) => {
   const env = c.env;
   const profile = loadProfile(env.TENANT_PROFILE);
@@ -226,10 +332,7 @@ app.post('/invoices', async (c) => {
       profile.settings.invoicePrefix,
       profile.settings.currency,
       profile.settings.mileageBillable,
-      {
-        incrementMinutes: profile.settings.billingIncrementMinutes,
-        minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
-      },
+      termsFor(profile),
     );
     return c.redirect(`/invoices/${invoice.id}`);
   } catch (e) {
@@ -246,16 +349,15 @@ app.get('/invoices/:id', async (c) => {
   const customer = await getCustomer(env, invoice.customer_id);
   if (!customer) return c.notFound();
   const contents = await invoiceContents(env, id);
+  const lines = await invoiceLines(env, id);
   return c.html(
     renderInvoice({
       business: profile.business,
       customer,
       invoice,
       contents,
-      terms: {
-        incrementMinutes: profile.settings.billingIncrementMinutes,
-        minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
-      },
+      terms: termsFor(profile),
+      lines,
     }),
   );
 });

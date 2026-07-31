@@ -181,3 +181,113 @@ export async function storeInbound(
 
   return { messageRowId, threadId, duplicate: false };
 }
+
+/**
+ * Record a message WE sent, in the same table as inbound.
+ *
+ * Until this existed, outbound was invisible to the system: a client replying
+ * to an invoice put our Message-ID in their In-Reply-To, we had never seen that
+ * id, and the reply fell through to subject matching -- which breaks the moment
+ * anybody edits a subject line. For a system whose job is to show what was
+ * agreed and when, a broken reply chain is an evidentiary hole, not a display
+ * nuisance.
+ *
+ * Stored AFTER a successful send, deliberately. A row claiming we sent
+ * something we did not is worse than no row: it would read, later, as proof of
+ * a notice that never left.
+ */
+export async function storeOutbound(
+  env: Env,
+  msg: {
+    threadId: number;
+    messageId: string | null;
+    inReplyTo: string | null;
+    references: string;
+    fromAddr: string;
+    toAddrs: string[];
+    subject: string;
+    bodyText: string;
+  },
+  transport = 'cf-email-sending',
+): Promise<number> {
+  const inserted = await env.DB.prepare(
+    `INSERT INTO messages
+       (thread_id, direction, message_id, in_reply_to, references_raw,
+        from_addr, to_addrs, cc_addrs, subject, body_text, body_html,
+        body_is_derived, contact_id, raw_r2_key, transport)
+     VALUES (?, 'outbound', ?, ?, ?, ?, ?, '[]', ?, ?, '', 0, NULL, NULL, ?)
+     RETURNING id`,
+  )
+    .bind(
+      msg.threadId,
+      msg.messageId,
+      msg.inReplyTo,
+      msg.references,
+      msg.fromAddr,
+      JSON.stringify(msg.toAddrs),
+      msg.subject,
+      msg.bodyText,
+      transport,
+    )
+    .first<{ id: number }>();
+
+  await env.DB.prepare("UPDATE threads SET last_message_at = datetime('now') WHERE id = ?")
+    .bind(msg.threadId)
+    .run();
+
+  return inserted!.id;
+}
+
+/** Threads newest first, with a message count, for the mail list. */
+export async function listThreads(env: Env, limit = 50) {
+  const { results } = await env.DB.prepare(
+    `SELECT t.id, t.subject, t.customer_id, t.last_message_at,
+            COUNT(m.id) AS message_count,
+            SUM(CASE WHEN m.direction = 'inbound' THEN 1 ELSE 0 END) AS inbound_count
+       FROM threads t LEFT JOIN messages m ON m.thread_id = t.id
+      GROUP BY t.id
+      ORDER BY t.last_message_at DESC
+      LIMIT ?`,
+  )
+    .bind(limit)
+    .all<{
+      id: number;
+      subject: string;
+      customer_id: number | null;
+      last_message_at: string;
+      message_count: number;
+      inbound_count: number;
+    }>();
+  return results ?? [];
+}
+
+/** One thread's messages oldest first, plus attachment counts. */
+export async function threadMessages(env: Env, threadId: number) {
+  const { results } = await env.DB.prepare(
+    `SELECT m.id, m.direction, m.message_id, m.from_addr, m.to_addrs, m.subject,
+            m.body_text, m.body_is_derived, m.received_at, m.references_raw,
+            (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id) AS attachment_count
+       FROM messages m WHERE m.thread_id = ? ORDER BY m.id`,
+  )
+    .bind(threadId)
+    .all<{
+      id: number;
+      direction: string;
+      message_id: string | null;
+      from_addr: string;
+      to_addrs: string;
+      subject: string;
+      body_text: string;
+      body_is_derived: number;
+      received_at: string;
+      references_raw: string;
+      attachment_count: number;
+    }>();
+  return results ?? [];
+}
+
+export async function getThread(env: Env, threadId: number) {
+  return env.DB.prepare('SELECT * FROM threads WHERE id = ?')
+    .bind(threadId)
+    .first<{ id: number; subject: string; customer_id: number | null }>();
+}

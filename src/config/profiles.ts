@@ -2,6 +2,7 @@ import { TenantProfile } from './profile';
 // Built from profiles/*.json by scripts/generate-profiles.mjs. If your editor
 // flags this as missing, run `npm run profiles`.
 import { PROFILES } from './profiles.generated';
+import { assertValidTimeZone } from '../domain/localtime';
 
 export function loadProfile(key: string): TenantProfile {
   const profile = PROFILES[key];
@@ -27,7 +28,16 @@ function assertBillingTermsStated(profile: TenantProfile, key: string): void {
   const s = profile.settings as Partial<typeof profile.settings>;
   const missing: string[] = [];
   if (typeof s.billingIncrementMinutes !== 'number') missing.push('billingIncrementMinutes');
-  if (typeof s.minimumCallOutMinutes !== 'number') missing.push('minimumCallOutMinutes');
+  const min = s.minimumCallOutMinutes as unknown;
+  const minOk =
+    typeof min === 'number' ||
+    (typeof min === 'object' &&
+      min !== null &&
+      typeof (min as { weekday?: unknown }).weekday === 'number' &&
+      typeof (min as { weekend?: unknown }).weekend === 'number');
+  if (!minOk) missing.push('minimumCallOutMinutes (a number, or {weekday, weekend})');
+  if (typeof s.timezone !== 'string' || s.timezone.length === 0) missing.push('timezone');
+  if (typeof s.timezone === 'string' && s.timezone.length > 0) assertValidTimeZone(s.timezone);
   if (missing.length > 0) {
     throw new Error(
       `Tenant profile ${JSON.stringify(key)} does not state ${missing.join(' and ')}. ` +

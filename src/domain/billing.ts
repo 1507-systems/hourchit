@@ -1,3 +1,5 @@
+import { isLocalWeekend } from './localtime';
+
 /**
  * Turning elapsed time into billable time.
  *
@@ -31,11 +33,51 @@
  * would quietly undercharge for every visit after the first.
  */
 
+/**
+ * A minimum call-out, which is often NOT a single number.
+ *
+ * Matt's A/V SOW 3.3 is the motivating case: "Four (4) hours per confirmed
+ * attendance for any event scheduled to begin on a Saturday or Sunday. No
+ * minimum call-out applies to an event scheduled to begin Monday through
+ * Friday." A flat number cannot express that, and neither available value is
+ * safe -- a weekday-sized minimum over-bills every weekday event, and a
+ * weekday-sized zero under-bills every weekend one. The weekend direction is
+ * the expensive one, because a cancelled weekend booking is payable AT the
+ * minimum under MSA 1.6(b).
+ *
+ * The plain-number form stays valid, so a tenant with a flat minimum needs no
+ * change.
+ */
+export type MinimumCallOut = number | { weekday: number; weekend: number };
+
 export interface BillingTerms {
   /** Increment in minutes; billable time rounds UP to a multiple of this. */
   incrementMinutes: number;
   /** Minimum billable minutes per attendance. 0 means no minimum. */
-  minimumCallOutMinutes: number;
+  minimumCallOutMinutes: MinimumCallOut;
+  /** Local days counted as weekend, 0 = Sunday. Only read for a split minimum. */
+  weekendDays: number[];
+  /** IANA zone the work happens in. Only read for a split minimum. */
+  timezone: string;
+}
+
+/**
+ * The minimum that applies to an attendance BEGINNING at `startedAtIso`.
+ *
+ * The SOW's determinant is when the event is SCHEDULED TO BEGIN, not when it
+ * ends and not how long it ran, so this reads the start instant only. A job
+ * that starts 22:00 Saturday and finishes 01:00 Sunday is one weekend
+ * attendance, not a boundary case.
+ */
+export function minimumMinutesFor(terms: BillingTerms, startedAtIso?: string): number {
+  const m = terms.minimumCallOutMinutes;
+  if (typeof m === 'number') return m;
+  // Without a start instant there is no way to tell which side applies. Take
+  // the LARGER, because under-billing a weekend minimum is the error that
+  // costs money, and a caller that forgot to pass the time should not be
+  // silently given the cheaper answer.
+  if (!startedAtIso) return Math.max(m.weekday, m.weekend);
+  return isLocalWeekend(startedAtIso, terms.timezone, terms.weekendDays) ? m.weekend : m.weekday;
 }
 
 /**
@@ -44,11 +86,16 @@ export interface BillingTerms {
  * Zero stays zero: an entry with no elapsed time is not an attendance, and
  * charging a minimum for it would bill for a mis-click.
  */
-export function billableSeconds(rawSeconds: number, terms: BillingTerms): number {
+export function billableSeconds(
+  rawSeconds: number,
+  terms: BillingTerms,
+  /** When the attendance BEGAN, needed only when the minimum is day-dependent. */
+  startedAtIso?: string,
+): number {
   if (!Number.isFinite(rawSeconds) || rawSeconds <= 0) return 0;
 
   const increment = Math.max(1, Math.round(terms.incrementMinutes)) * 60;
-  const minimum = Math.max(0, Math.round(terms.minimumCallOutMinutes)) * 60;
+  const minimum = Math.max(0, Math.round(minimumMinutesFor(terms, startedAtIso))) * 60;
 
   const rounded = Math.ceil(rawSeconds / increment) * increment;
 
@@ -60,8 +107,11 @@ export function billableSeconds(rawSeconds: number, terms: BillingTerms): number
 }
 
 /** Billable seconds across many attendances, each rounded on its own. */
-export function billableSecondsTotal(rawSecondsPerEntry: number[], terms: BillingTerms): number {
-  return rawSecondsPerEntry.reduce((sum, s) => sum + billableSeconds(s, terms), 0);
+export function billableSecondsTotal(
+  entries: Array<{ seconds: number; startedAtIso?: string }>,
+  terms: BillingTerms,
+): number {
+  return entries.reduce((sum, e) => sum + billableSeconds(e.seconds, terms, e.startedAtIso), 0);
 }
 
 /**
