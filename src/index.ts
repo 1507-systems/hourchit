@@ -347,7 +347,7 @@ app.get('/settings', async (c) => {
     .filter((t) => t.effective_from > asOfInstant && t.effective_from < dayEnd)
     .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0];
 
-  const { floor, invoicedUpTo } = await effectiveDateFloor(
+  const { floor, noticeFloor, invoicedUpTo } = await effectiveDateFloor(
     c,
     nowIso,
     profile.settings.termsNoticeDays,
@@ -374,13 +374,17 @@ app.get('/settings', async (c) => {
         mileageCents: v ? v.mileage_rate_cents : profile.settings.mileageRateCentsPerMile,
         mileageBillable: v ? v.mileage_billable === 1 : profile.settings.mileageBillable,
 
-        versions,
+        // Effective dates are stored as UTC instants but MEAN a local date.
+        // Slicing the ISO string would show 31 August for a boundary the
+        // operator set to 1 September, on exactly the tenants west of UTC.
+        versions: versions.map((t) => ({ ...t, effectiveLabel: longDate(t.effective_from, tz) })),
         inForceVersionId: v?.id ?? null,
-        latestInvoicedWorkAt: invoicedUpTo,
+        latestInvoicedLabel: invoicedUpTo ? longDate(invoicedUpTo, tz) : null,
         timezone: tz,
         noticeDays: profile.settings.termsNoticeDays,
-        earliestEffectiveWall: utcToZonedWallTime(floor, tz),
-        earliestEffectiveLabel: longDate(floor, tz),
+        noticeFloorLabel: longDate(noticeFloor, tz),
+        acceptedFromLabel: longDate(floor, tz),
+        acceptedFromWall: utcToZonedWallTime(floor, tz),
       },
       flashHtml(c),
     ),

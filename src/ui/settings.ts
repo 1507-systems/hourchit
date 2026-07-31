@@ -39,19 +39,29 @@ export interface SettingsView {
   mileageCents: number;
   mileageBillable: boolean;
 
-  versions: TermVersion[];
+  /** Effective dates arrive pre-formatted in LOCAL time; see renderSettings. */
+  versions: Array<TermVersion & { effectiveLabel: string }>;
   /** id of the version in force at asOf, so the history can mark it. */
   inForceVersionId: number | null;
 
-  /** Null when nothing has been invoiced; otherwise the guard boundary. */
-  latestInvoicedWorkAt: string | null;
+  /** Null when nothing has been invoiced; otherwise the guard boundary, written out. */
+  latestInvoicedLabel: string | null;
   timezone: string;
 
-  /** Notice the contract requires, and the floor it puts under the date field. */
+  /**
+   * TWO FLOORS UNDER THE EFFECTIVE DATE, and either can be the binding one.
+   *
+   * They are reported separately because a single "earliest accepted" date
+   * attributed to the wrong rule is a confidently wrong explanation: telling an
+   * operator that thirty days' notice lands on 15 September, when that date
+   * actually came from an invoice, teaches them the wrong arithmetic.
+   */
   noticeDays: number;
-  /** "YYYY-MM-DDTHH:MM" local, for the input's min attribute and its default. */
-  earliestEffectiveWall: string;
-  earliestEffectiveLabel: string;
+  noticeFloorLabel: string;
+  /** The later of the two, which is what the form will actually take. */
+  acceptedFromLabel: string;
+  /** "YYYY-MM-DDTHH:MM" local form of that, for the input's min and default. */
+  acceptedFromWall: string;
 }
 
 /** Read a stored minimum for display, tolerating a value we cannot parse. */
@@ -90,7 +100,7 @@ export function renderSettings(v: SettingsView, flash = ''): string {
     ? v.versions
         .map(
           (t) => `<tr>
-      <td>${esc(t.effective_from.slice(0, 10))}
+      <td>${esc(t.effectiveLabel)}
         ${t.id === v.inForceVersionId ? '<span class="tag">in force</span>' : ''}</td>
       <td class="num">${t.billing_increment_minutes} min</td>
       <td>${describeMinimum(t.minimum_callout)}</td>
@@ -102,10 +112,12 @@ export function renderSettings(v: SettingsView, flash = ''): string {
         .join('')
     : `<tr><td colspan="6" class="muted">No recorded versions yet — the tenant profile supplies the terms in force.</td></tr>`;
 
-  const guard = v.latestInvoicedWorkAt
-    ? `<p class="muted">Work up to <strong>${esc(v.latestInvoicedWorkAt.slice(0, 10))}</strong> has already
-         been invoiced. An effective date on or before that would restate a billed period, so it is refused.</p>`
-    : `<p class="muted">Nothing has been invoiced yet, so any date from ${esc(v.earliestEffectiveLabel)} is accepted.</p>`;
+  const guard = v.latestInvoicedLabel
+    ? `<p class="muted">Work up to <strong>${esc(v.latestInvoicedLabel)}</strong> has already been invoiced.
+         An effective date on or before that would restate a billed period, so it is refused too — which is
+         why this form accepts nothing before <strong>${esc(v.acceptedFromLabel)}</strong>.</p>`
+    : `<p class="muted">Nothing has been invoiced yet, so the notice period is the only thing setting
+         the earliest date.</p>`;
 
   return layout({
     title: 'Billing terms',
@@ -145,11 +157,12 @@ ${flash}
   <p class="flash err"><strong>Recording terms here does not give notice.</strong>
     ${
       v.noticeDays > 0
-        ? `The contract requires <strong>${v.noticeDays} days'</strong> written notice, so the earliest date
-           this form accepts is <strong>${esc(v.earliestEffectiveLabel)}</strong> — ${v.noticeDays} days plus one,
-           because day ${v.noticeDays} is still a day the client is owed.`
-        : `No notice period is configured, so the earliest date this form accepts is
-           <strong>${esc(v.earliestEffectiveLabel)}</strong>. Terms can never take effect today or in the past.`
+        ? `The contract requires <strong>${v.noticeDays} days'</strong> written notice, so terms cannot take
+           effect before <strong>${esc(v.noticeFloorLabel)}</strong> — ${v.noticeDays} days plus one, because
+           day ${v.noticeDays} is still a day the client is owed.`
+        : `No notice period is configured, so terms cannot take effect before
+           <strong>${esc(v.noticeFloorLabel)}</strong>. They can never take effect today or in the past,
+           whatever the contract says, because work performed this morning would reprice mid-day.`
     }
     Serve the notice yourself, then record it here. The next page gives you a letter to send.</p>
 
@@ -158,7 +171,7 @@ ${flash}
   <form method="post" action="/settings/terms">
     <label>Effective from — the first moment work bills at these terms
       <input type="datetime-local" name="effectiveFrom" required
-             min="${esc(v.earliestEffectiveWall)}" value="${esc(v.earliestEffectiveWall)}"></label>
+             min="${esc(v.acceptedFromWall)}" value="${esc(v.acceptedFromWall)}"></label>
 
     <label>Billing increment, minutes — billable time rounds up to a multiple of this
       <input type="number" name="increment" min="1" step="1" value="${v.increment}" required></label>
