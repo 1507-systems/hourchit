@@ -1,0 +1,38 @@
+-- WHICH CONTRACTUAL PATH A TERM CHANGE TRAVELS BY.
+--
+-- Matt's A/V MSA section 3.3 permits fee adjustments two different ways, and
+-- they are not variations of one rule -- they have different preconditions and
+-- different earliest effective dates:
+--
+--   'notice'     Standard rate updates applicable across Provider's client
+--                base. Take effect on WRITTEN NOTICE of at least the period
+--                each SOW names. Nobody has to agree; the client is told.
+--
+--   'agreement'  Fee adjustments on renewal or on a material change in scope.
+--                Take effect "upon written agreement of both parties". There
+--                is NO notice period, because there is nothing to give notice
+--                OF -- the client has already assented.
+--
+-- Modelling only the first is what the app did before this column, and the
+-- failure was silent in the expensive direction: a rate the client had ALREADY
+-- AGREED TO could not be applied for sixty-one days, so either the operator
+-- waits two months to charge what was agreed, or they lie to the form about
+-- the date. Both are worse than the schema knowing the difference.
+--
+-- DEFAULT 'notice' is for BACKFILL ONLY and is the stricter reading: a version
+-- recorded before this distinction existed was recorded under a UI that only
+-- described notice, so notice is what it meant. The application always passes
+-- the value explicitly, so the default never classifies a new row.
+ALTER TABLE term_versions ADD COLUMN basis TEXT NOT NULL DEFAULT 'notice';
+
+-- Who agreed, when basis = 'agreement'. Free text on purpose: what matters is
+-- being able to name the counterparty and the date years later, and forcing it
+-- through a foreign key would mean an agreement could not reference a client
+-- who has since been archived, or a person rather than an organisation.
+--
+-- READ THIS TOGETHER WITH THE FACT THAT TERMS ARE TENANT-WIDE. An agreed change
+-- applies to every client, because there is only one set of terms. If one
+-- client agrees a new rate and another does not, this column will say so and
+-- the invoices will not -- which is the signal that terms need to become
+-- per-client, not a thing to work around by recording it anyway.
+ALTER TABLE term_versions ADD COLUMN agreed_with TEXT NOT NULL DEFAULT '';

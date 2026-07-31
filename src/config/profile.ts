@@ -66,6 +66,27 @@ export interface ProfileSettings {
   minimumCallOutMinutes: number | { weekday: number; weekend: number };
 
   /**
+   * The tenant's STANDARD notice period for a rate change, in days.
+   *
+   * This is the default a new client starts with, not the number the app
+   * enforces. The binding value is per client (customers.notice_days), because
+   * the notice period is a negotiated SOW term -- Matt's A/V SOW section 3.6 is
+   * a per-SOW field, and the University of Bridgeport SOW names sixty days
+   * where another client might name something else.
+   *
+   * REQUIRED even so, and stated even when it is zero, for the same reason as
+   * the minimum call-out: the number a tenant offers by default is a decision,
+   * and a field nobody filled in is not.
+   *
+   * MIND THE CONTRACTUAL FLOOR when setting it. Under Matt's A/V MSA section
+   * 3.3 a standard rate update needs notice "at least thirty (30) days longer
+   * than the termination-for-convenience notice period", which section 2.2 sets
+   * at thirty -- so sixty is the minimum that agreement permits, not a
+   * preference. A tenant on a different MSA will have a different floor.
+   */
+  termsNoticeDays: number;
+
+  /**
    * IANA timezone the work happens in, e.g. "America/New_York". REQUIRED.
    *
    * Time entries are stored as UTC, but every rule that cares about "which day"

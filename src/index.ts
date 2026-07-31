@@ -30,7 +30,10 @@ import {
   getTask,
   invoiceContents,
   invoiceLines,
+  createTermVersion,
+  latestInvoicedWorkAt,
   listAllCustomers,
+  listTermVersions,
   listAllRoutes,
   listAllTasks,
   setCustomerArchived,
@@ -53,6 +56,20 @@ import {
 import { renderDashboard, TaskView } from './ui/dashboard';
 import { renderMailList, renderThread } from './ui/mail';
 import { renderClient, renderClients } from './ui/clients';
+import { renderSettings } from './ui/settings';
+import {
+  conflictsWithInvoicedWork,
+  earliestEffectiveFrom,
+  noticeDaysForTenantChange,
+  parseTermBasis,
+  parseMinimumCallOut,
+  serializeMinimumCallOut,
+  versionAt,
+} from './domain/terms';
+import { parseDuration } from './domain/duration';
+import { localDateString, utcToZonedWallTime, zonedWallTimeToUtc } from './domain/localtime';
+import { renderNotice } from './ui/notice';
+import type { MinimumCallOut } from './domain/billing';
 import { getThread, listThreads, storeOutbound, threadMessages } from './inbox';
 import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
@@ -78,10 +95,42 @@ function termsFor(profile: TenantProfile): BillingTerms {
 // that silently no-ops is otherwise indistinguishable from a successful one.
 // It reports only the build identity and which tenant is configured, never
 // the profile contents, which are the client's business.
-app.get('/health', (c) =>
+/**
+ * The newest migration this database has actually applied.
+ *
+ * READ THROUGH THE WORKER, deliberately, because the Worker has a D1 binding
+ * and the deploy pipeline does not: the API token Cloudflare Workers Builds
+ * issues itself carries no D1 permission, so nothing in CI can ask D1 anything.
+ * The Worker can, and it is already being asked whether the deploy took effect.
+ *
+ * This closes a hole that a green deploy could not see. On 2026-07-31 migration
+ * 0009's code shipped, /health reported the right commit, every signal said
+ * success -- and the column did not exist, so a validation rule silently did
+ * not fire. A matching git SHA proves the CODE is live. It says nothing about
+ * whether the SCHEMA that code assumes is there.
+ *
+ * `d1_migrations` is wrangler's own tracking table. Null means no migration has
+ * ever been applied, or D1 is unreachable; the verifier treats either as a
+ * mismatch rather than guessing.
+ */
+async function appliedSchema(env: Env): Promise<string | null> {
+  try {
+    const row = await env.DB.prepare(
+      'SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1',
+    ).first<{ name: string }>();
+    return row?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+app.get('/health', async (c) =>
   c.json({
     status: 'ok',
     tenant: c.env.TENANT_PROFILE,
+    // The newest applied migration, so a deploy can verify the SCHEMA moved and
+    // not merely the code. A public filename from a public repo; no client data.
+    schema: await appliedSchema(c.env),
     // The core commit that is running. A drift check compares this against
     // this repository's main; it is the application code, not the config.
     version: GIT_SHA,
@@ -266,6 +315,366 @@ function tenantAddress(c: Context<{ Bindings: Env }>): string {
   return `${c.env.TENANT_PROFILE}@${domain}`;
 }
 
+// ---- Billing terms ---------------------------------------------------------
+
+/** A date written out for a person, in the tenant's own zone. */
+function longDate(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(Date.parse(iso)));
+}
+
+/**
+ * As longDate, but keeping the time of day when there is one.
+ *
+ * The invoiced-work floor lands wherever the last billed job did, which is
+ * rarely midnight. Rounding it down to a bare date describes a floor the form
+ * does not actually have -- it reads as though the whole day were available
+ * while the input silently refuses the morning.
+ */
+function longMoment(iso: string, timeZone: string): string {
+  const wall = utcToZonedWallTime(iso, timeZone);
+  if (wall.endsWith('T00:00')) return longDate(iso, timeZone);
+  const time = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(Date.parse(iso)));
+  return `${longDate(iso, timeZone)} at ${time}`;
+}
+
+/**
+ * The soonest date the terms form will accept.
+ *
+ * Two floors, and the later one wins. The NOTICE floor comes from the contract:
+ * a change cannot bite before the client has had the notice they are owed. The
+ * INVOICED floor comes from the books: a date inside an already-billed period
+ * would make a stored invoice disagree with the terms that explain it. They are
+ * independent, and either can be the binding one.
+ */
+async function effectiveDateFloor(
+  c: { env: Env },
+  nowIso: string,
+  timeZone: string,
+): Promise<{
+  floor: string;
+  noticeFloor: string;
+  invoicedFloor: string | null;
+  invoicedUpTo: string | null;
+  notice: ReturnType<typeof noticeDaysForTenantChange>;
+}> {
+  // Active clients only. A change cannot owe notice to an engagement that has
+  // ended, and an archived client's SOW would otherwise hold the floor down
+  // forever.
+  const notice = noticeDaysForTenantChange(await listCustomers(c.env));
+  const noticeFloor = earliestEffectiveFrom(nowIso, notice.days, timeZone);
+  const invoicedUpTo = await latestInvoicedWorkAt(c.env);
+  // A minute past the last invoiced instant: conflictsWithInvoicedWork treats
+  // the boundary itself as a conflict, so the floor has to clear it.
+  const invoicedFloor = invoicedUpTo
+    ? new Date(Date.parse(invoicedUpTo) + 60_000).toISOString()
+    : null;
+  const floor = invoicedFloor && invoicedFloor > noticeFloor ? invoicedFloor : noticeFloor;
+  return { floor, noticeFloor, invoicedFloor, invoicedUpTo, notice };
+}
+
+app.get('/settings', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const tz = profile.settings.timezone;
+  const versions = await listTermVersions(c.env);
+  const nowIso = new Date().toISOString();
+
+  // Which day is the panel answering for? Terms resolve against the day work
+  // was PERFORMED, so the honest question is "what does a given day bill at",
+  // not "what is set right now" -- and past days are exactly the ones somebody
+  // queries when an old invoice is challenged.
+  const asked = c.req.query('asOf') ?? '';
+  const asOfDate = /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : localDateString(nowIso, tz);
+  const asOfInstant = zonedWallTimeToUtc(`${asOfDate}T00:00`, tz);
+
+  const v = versionAt(versions, asOfInstant);
+
+  // A version taking effect LATER on the selected day means the day has two
+  // answers. Saying so beats showing one of them as though it were the whole
+  // truth, which is how a half-day at the wrong rate gets defended.
+  const dayEnd = zonedWallTimeToUtc(
+    `${new Date(Date.parse(asOfInstant) + 86_400_000).toISOString().slice(0, 10)}T00:00`,
+    tz,
+  );
+  const later = versions
+    .filter((t) => t.effective_from > asOfInstant && t.effective_from < dayEnd)
+    .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0];
+
+  const { floor, invoicedFloor, noticeFloor, invoicedUpTo, notice } = await effectiveDateFloor(
+    c,
+    nowIso,
+    tz,
+  );
+
+  return c.html(
+    renderSettings(
+      {
+        business: profile.business.name,
+        asOfDate,
+        asOfLabel: longDate(asOfInstant, tz),
+        asOfSource: v
+          ? `From the version effective ${longDate(v.effective_from, tz)}, recorded ${v.recorded_at.slice(0, 10)}.`
+          : 'From the tenant profile — no recorded version covers this date.',
+        changesLaterThatDay: later ? utcToZonedWallTime(later.effective_from, tz).slice(11) : null,
+
+        // Fall back to the profile when no version covers the date, so the page
+        // shows what is genuinely in force rather than an empty state.
+        increment: v ? v.billing_increment_minutes : profile.settings.billingIncrementMinutes,
+        minimum: v
+          ? v.minimum_callout
+          : serializeMinimumCallOut(profile.settings.minimumCallOutMinutes),
+        mileageCents: v ? v.mileage_rate_cents : profile.settings.mileageRateCentsPerMile,
+        mileageBillable: v ? v.mileage_billable === 1 : profile.settings.mileageBillable,
+
+        // Effective dates are stored as UTC instants but MEAN a local date.
+        // Slicing the ISO string would show 31 August for a boundary the
+        // operator set to 1 September, on exactly the tenants west of UTC.
+        versions: versions.map((t) => ({ ...t, effectiveLabel: longDate(t.effective_from, tz) })),
+        inForceVersionId: v?.id ?? null,
+        latestInvoicedLabel: invoicedUpTo ? longMoment(invoicedUpTo, tz) : null,
+        timezone: tz,
+        noticeDays: notice.days,
+        noticeLongestFrom: notice.longestFrom,
+        noticeUnstated: notice.unstated,
+        noticeFloorLabel: longDate(noticeFloor, tz),
+        acceptedFromLabel: longMoment(floor, tz),
+        acceptedFromWall: utcToZonedWallTime(floor, tz),
+        // An AGREED change owes no notice, so the only thing under it is work
+        // already invoiced. Empty means nothing constrains it at all -- an
+        // agreement can legitimately be backdated to the day it was reached.
+        agreedFloorWall: invoicedFloor ? utcToZonedWallTime(invoicedFloor, tz) : '',
+        agreedFloorLabel: invoicedFloor ? longMoment(invoicedFloor, tz) : '',
+      },
+      flashHtml(c),
+    ),
+  );
+});
+
+app.post('/settings/terms', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const tz = profile.settings.timezone;
+  const nowIso = new Date().toISOString();
+  const b = await c.req.parseBody();
+
+  const raw = String(b.effectiveFrom ?? '').trim();
+  if (!raw) return c.redirect('/settings?err=' + encodeURIComponent('An effective date is required'));
+
+  // The input gives local wall time with no zone. Convert it to the UTC instant
+  // it names, because that is what every stored work instant is -- comparing a
+  // local string against an ISO instant sorts by accident rather than by time.
+  let effectiveFrom: string;
+  try {
+    effectiveFrom = zonedWallTimeToUtc(raw, tz);
+  } catch (e) {
+    return c.redirect('/settings?err=' + encodeURIComponent((e as Error).message));
+  }
+
+  // WHICH CONTRACTUAL PATH decides which floor applies. A change the client has
+  // already agreed to owes no notice -- there is nothing to give notice OF --
+  // so applying the notice floor to it would refuse, for two months, to charge
+  // a rate agreed last week. That teaches the operator to lie about the date,
+  // and a date that was lied about is worthless in the dispute it exists for.
+  const basis = parseTermBasis(b.basis);
+  const agreedWith = String(b.agreedWith ?? '').trim();
+
+  if (basis === 'agreement' && agreedWith.length === 0) {
+    return c.redirect(
+      '/settings?err=' +
+        encodeURIComponent(
+          'Name who agreed. An agreed change takes effect because a counterparty assented, and a ' +
+            'record that cannot say who did is not evidence of anything.',
+        ),
+    );
+  }
+
+  const { noticeFloor, notice } = await effectiveDateFloor(c, nowIso, tz);
+
+  if (basis === 'notice') {
+    // Refuse outright while any active client's notice period is unknown. The
+    // alternative is to compute a floor from the clients we HAVE read, which
+    // looks identical to a correct answer and is short by however long the
+    // unread SOW turns out to be.
+    if (notice.unstated.length > 0) {
+      return c.redirect(
+        '/settings?err=' +
+          encodeURIComponent(
+            `The notice period is not recorded for ${notice.unstated.map((u) => u.name).join(', ')}. ` +
+              'Set it on each client before changing terms — otherwise the earliest effective date is ' +
+              'a guess.',
+          ),
+      );
+    }
+
+    if (effectiveFrom < noticeFloor) {
+      return c.redirect(
+        '/settings?err=' +
+          encodeURIComponent(
+            `${notice.days} days' notice is required${notice.longestFrom ? ` (the longest, for ${notice.longestFrom})` : ''}, ` +
+              `so terms cannot take effect before ${longDate(noticeFloor, tz)}.`,
+          ),
+      );
+    }
+  }
+
+  // Refuse to restate a period that has already been billed. The invoice's own
+  // lines are frozen, but a stored invoice disagreeing with what the terms now
+  // say is exactly what cannot be explained later.
+  const guard = conflictsWithInvoicedWork(effectiveFrom, await latestInvoicedWorkAt(c.env));
+  if (guard.conflicts) {
+    return c.redirect(
+      '/settings?err=' +
+        encodeURIComponent(
+          `That date would restate work already invoiced up to ` +
+            `${longDate(guard.latestInvoicedWorkAt as string, tz)}. Choose a later effective date.`,
+        ),
+    );
+  }
+
+  const increment = Number(b.increment);
+  const mileageCents = Number(b.mileageCents);
+  if (!Number.isFinite(increment) || increment < 1 || !Number.isFinite(mileageCents) || mileageCents < 0) {
+    return c.redirect('/settings?err=' + encodeURIComponent('Increment and mileage rate must be numbers'));
+  }
+
+  // The dropdown decides which fields are read. Reading the pair when "same
+  // every day" is chosen -- or the single field when it is not -- is how a
+  // weekend minimum gets typed in and quietly discarded.
+  let minimum: MinimumCallOut;
+  try {
+    minimum =
+      String(b.minimumMode ?? 'flat') === 'split'
+        ? {
+            weekday: parseDuration(String(b.minWeekday ?? '')),
+            weekend: parseDuration(String(b.minWeekend ?? '')),
+          }
+        : parseDuration(String(b.minFlat ?? ''));
+    // Round-trip it before storing: a value that cannot be read back would make
+    // every later invoice fail rather than this form.
+    parseMinimumCallOut(serializeMinimumCallOut(minimum));
+  } catch (e) {
+    return c.redirect('/settings?err=' + encodeURIComponent((e as Error).message));
+  }
+
+  const id = await createTermVersion(c.env, {
+    effectiveFrom,
+    basis,
+    agreedWith: basis === 'agreement' ? agreedWith : '',
+    billingIncrementMinutes: Math.round(increment),
+    minimumCallOut: serializeMinimumCallOut(minimum),
+    mileageRateCents: Math.round(mileageCents),
+    mileageBillable: String(b.mileageBillable ?? '') === '1',
+    recordedBy: 'operator',
+    note: String(b.note ?? ''),
+  });
+
+  // Straight to the letter. Recording the version changes what HourChit will
+  // invoice; it does not tell the client anything, and the only thing standing
+  // between those two facts is somebody actually sending the notice.
+  return c.redirect(
+    `/settings/terms/${id}/notice?ok=` +
+      encodeURIComponent(
+        basis === 'agreement'
+          ? 'Terms recorded. Send the confirmation — nothing has been sent yet.'
+          : 'Terms recorded. Now serve the notice — nothing has been sent yet.',
+      ),
+  );
+});
+
+/**
+ * The notice letter for a recorded version.
+ *
+ * "Before" is the version in force the instant BEFORE this one takes effect,
+ * which is what the client is currently being billed at -- not simply the
+ * previous row, since versions can be recorded out of order.
+ */
+app.get('/settings/terms/:id/notice', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const tz = profile.settings.timezone;
+  const id = Number(c.req.param('id'));
+  const versions = await listTermVersions(c.env);
+  const version = versions.find((t) => t.id === id);
+  if (!version) return c.notFound();
+
+  const justBefore = new Date(Date.parse(version.effective_from) - 1).toISOString();
+  const prev = versionAt(
+    versions.filter((t) => t.id !== id),
+    justBefore,
+  );
+
+  const customers = await listCustomers(c.env);
+  const wanted = Number(c.req.query('customer'));
+  const recipient = customers.find((cu) => cu.id === wanted) ?? null;
+
+  const nowIso = new Date().toISOString();
+  const daysGiven = Math.floor(
+    (Date.parse(zonedWallTimeToUtc(`${localDateString(version.effective_from, tz)}T00:00`, tz)) -
+      Date.parse(zonedWallTimeToUtc(`${localDateString(nowIso, tz)}T00:00`, tz))) /
+      86_400_000,
+  );
+
+  return c.html(
+    renderNotice({
+      business: profile.business,
+      basis: version.basis,
+      agreedWith: version.agreed_with,
+      todayLabel: longDate(nowIso, tz),
+      effectiveLabel: longDate(version.effective_from, tz),
+      noticeDays: profile.settings.termsNoticeDays,
+      daysGiven,
+      before: prev
+        ? {
+            incrementMinutes: prev.billing_increment_minutes,
+            minimum: prev.minimum_callout,
+            mileageCents: prev.mileage_rate_cents,
+            mileageBillable: prev.mileage_billable === 1,
+          }
+        : {
+            incrementMinutes: profile.settings.billingIncrementMinutes,
+            minimum: serializeMinimumCallOut(profile.settings.minimumCallOutMinutes),
+            mileageCents: profile.settings.mileageRateCentsPerMile,
+            mileageBillable: profile.settings.mileageBillable,
+          },
+      after: {
+        incrementMinutes: version.billing_increment_minutes,
+        minimum: version.minimum_callout,
+        mileageCents: version.mileage_rate_cents,
+        mileageBillable: version.mileage_billable === 1,
+      },
+      note: version.note,
+      recipient: recipient
+        ? { id: recipient.id, name: recipient.name, address: recipient.address, email: recipient.email }
+        : null,
+      customers: customers.map((cu) => ({ id: cu.id, name: cu.name })),
+      versionId: version.id,
+    }),
+  );
+});
+
+/**
+ * Read the notice-period field, distinguishing blank from zero.
+ *
+ * Both are legitimate: a client may genuinely have agreed to no notice period,
+ * and a client may simply not have had their SOW read in yet. Storing them as
+ * the same value throws away the difference between "none" and "nobody knows",
+ * and the app needs that difference to decide whether it can offer an earliest
+ * effective date at all.
+ */
+function noticeDaysFromForm(raw: unknown): number | null {
+  const text = String(raw ?? '').trim();
+  if (text === '') return null;
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
 // ---- Client management -----------------------------------------------------
 
 app.get('/clients', async (c) => {
@@ -311,6 +720,11 @@ app.post('/clients/:id', async (c) => {
     email: String(b.email ?? ''),
     notes: String(b.notes ?? ''),
     workdriveFolderId: folder.length > 0 ? folder : null,
+    // Blank means UNSTATED, not zero. Coercing an empty field to 0 would
+    // record that this client agreed to no notice at all, which is a term
+    // nobody negotiated -- and it would then shorten the floor for every other
+    // client, since the binding period is the longest across them.
+    noticeDays: noticeDaysFromForm(b.noticeDays),
   });
   return c.redirect(`/clients/${id}?ok=` + encodeURIComponent('Saved'));
 });

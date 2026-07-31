@@ -80,7 +80,12 @@ export function renderInvoice(args: {
   .actions{margin:1.5rem 0}
   button{font-size:1rem;padding:.55rem 1rem;border-radius:.4rem;border:0;background:#1f6feb;color:#fff;cursor:pointer}
   button.secondary{background:#eaeef2;color:#1f2328}
-  @media print{.actions,.nav{display:none}}
+  /* .status is INTERNAL WORKFLOW STATE, not part of the invoice. It is hidden
+     in print because the order of operations guarantees it would otherwise be
+     wrong on every copy a client ever sees: you print or save the PDF, and THEN
+     mark it sent -- so at the moment of printing an invoice is always "draft",
+     and every document going out would tell the client not to pay it yet. */
+  @media print{.actions,.nav,.status{display:none}}
   .nav{margin-bottom:1rem}
   .nav a{color:#656d76}
 </style></head>
@@ -96,7 +101,7 @@ export function renderInvoice(args: {
       <h1>INVOICE</h1>
       <div class="muted">${esc(invoice.number || `#${invoice.id}`)}</div>
       <div class="muted">Issued ${esc(invoice.created_at.slice(0, 10))}</div>
-      <div class="muted">Status: ${esc(invoice.status)}</div>
+      <div class="muted status">Status: ${esc(invoice.status)}</div>
     </div>
   </div>
 

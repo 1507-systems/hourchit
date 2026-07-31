@@ -52,3 +52,48 @@ describe('/health', () => {
     expect(text).not.toMatch(/address|email|phone|rate/i);
   });
 });
+
+describe('/health reports the applied schema', () => {
+  const withDb = (name: string | null) =>
+    env({
+      DB: {
+        prepare: () => ({
+          first: async () => (name === null ? null : { name }),
+        }),
+      },
+    } as unknown as Partial<Env>);
+
+  it('names the newest applied migration', async () => {
+    // A matching git SHA proves the CODE is live and says nothing about the
+    // SCHEMA. On 2026-07-31 migration 0009's code shipped, /health reported the
+    // right commit, and the column did not exist -- so a validation rule
+    // silently did not fire and every signal still read as success.
+    const body = (await (
+      await app.request('/health', {}, withDb('0010_term_version_basis.sql'))
+    ).json()) as Record<string, unknown>;
+    expect(body.schema).toBe('0010_term_version_basis.sql');
+  });
+
+  it('reports null rather than throwing when D1 is unreachable', async () => {
+    // The verifier treats null as a mismatch. Health must still answer, because
+    // it is also how a pipeline learns the Worker is up at all.
+    const broken = env({
+      DB: {
+        prepare: () => {
+          throw new Error('no such table: d1_migrations');
+        },
+      },
+    } as unknown as Partial<Env>);
+    const res = await app.request('/health', {}, broken);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Record<string, unknown>).schema).toBeNull();
+  });
+
+  it('reports null when no migration has ever been applied', async () => {
+    const body = (await (await app.request('/health', {}, withDb(null))).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(body.schema).toBeNull();
+  });
+});

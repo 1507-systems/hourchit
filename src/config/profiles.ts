@@ -36,6 +36,9 @@ function assertBillingTermsStated(profile: TenantProfile, key: string): void {
       typeof (min as { weekday?: unknown }).weekday === 'number' &&
       typeof (min as { weekend?: unknown }).weekend === 'number');
   if (!minOk) missing.push('minimumCallOutMinutes (a number, or {weekday, weekend})');
+  if (typeof s.termsNoticeDays !== 'number' || s.termsNoticeDays < 0) {
+    missing.push('termsNoticeDays (0 or more; 30 unless the contract says otherwise)');
+  }
   if (typeof s.timezone !== 'string' || s.timezone.length === 0) missing.push('timezone');
   if (typeof s.timezone === 'string' && s.timezone.length > 0) assertValidTimeZone(s.timezone);
   if (missing.length > 0) {

@@ -6,6 +6,12 @@ import type { Env } from './env';
 import { durationSeconds, TimeEntry } from './domain/time';
 import { buildInvoice, invoiceNumber, MileageItem, TaskTimeAggregate } from './domain/invoicing';
 import { billableSeconds, type BillingTerms } from './domain/billing';
+import {
+  taskRateForInstant,
+  termsForInstant,
+  type TermVersion,
+  type TaskRateVersion,
+} from './domain/terms';
 
 export interface Customer {
   id: number;
@@ -15,6 +21,14 @@ export interface Customer {
   archived: number;
   workdrive_folder_id: string | null;
   notes: string;
+  /**
+   * Days of written notice a rate change owes this client, per their SOW.
+   *
+   * NULL means UNSTATED, which is not the same as none. Nobody has read this
+   * client's agreement into the system yet, and the app refuses to compute an
+   * earliest-effective-date rather than invent one.
+   */
+  notice_days: number | null;
 }
 
 export interface Task {
@@ -82,11 +96,11 @@ export async function getCustomer(env: Env, id: number): Promise<Customer | null
 
 export async function createCustomer(
   env: Env,
-  c: { name: string; address: string; email: string; notes?: string },
+  c: { name: string; address: string; email: string; notes?: string; noticeDays?: number | null },
 ): Promise<number> {
   const r = await db(env)
-    .prepare('INSERT INTO customers (name, address, email, notes) VALUES (?, ?, ?, ?)')
-    .bind(c.name, c.address, c.email, c.notes ?? '')
+    .prepare('INSERT INTO customers (name, address, email, notes, notice_days) VALUES (?, ?, ?, ?, ?)')
+    .bind(c.name, c.address, c.email, c.notes ?? '', c.noticeDays ?? null)
     .run();
   return r.meta.last_row_id as number;
 }
@@ -317,14 +331,22 @@ export async function createInvoiceForCustomer(
    */
   mileageBillable: boolean,
   /**
-   * The tenant's billing increment and minimum call-out. Passed rather than
-   * defaulted for the same reason as mileageBillable: these decide what a client
-   * owes, and a default would let one tenant's terms apply to another's invoice.
+   * FALLBACK terms, from the tenant profile. Used only when no term version
+   * covers a piece of work -- which for a tenant seeded from its profile should
+   * never happen, but a missing version must not make an entry unbillable.
    */
   terms: BillingTerms,
 ): Promise<Invoice> {
   const time = await unbilledTimeEntries(env, customerId);
   const mileage = await unbilledMileage(env, customerId);
+
+  // Terms and per-task rates are resolved PER ENTRY against the moment the work
+  // was PERFORMED, never against now. A rate that rose last week must not
+  // reprice the hours logged before it -- that work was done under the older
+  // terms, and billing it at a rate the client never agreed to is what gets an
+  // invoice disputed.
+  const termVersions = await listTermVersions(env);
+  const rateHistory = await taskRateHistory(env);
 
   if (time.length === 0 && mileage.length === 0) {
     throw new Error('Nothing unbilled to invoice for this customer.');
@@ -333,18 +355,33 @@ export async function createInvoiceForCustomer(
   // Aggregate time per task and describe each mileage trip for the totals.
   const perTask = new Map<number, TaskTimeAggregate>();
   for (const e of time) {
+    // The rate is likewise the one in force when the work was performed, not
+    // the task's current rate.
+    const rateThen = taskRateForInstant(
+      rateHistory.get(e.taskId) ?? [],
+      e.startedAt,
+      e.rateCentsPerHour,
+    );
     const agg = perTask.get(e.taskId) ?? {
       taskId: e.taskId,
       taskName: e.taskName,
-      rateCentsPerHour: e.rateCentsPerHour,
+      rateCentsPerHour: rateThen,
       seconds: 0,
     };
     // Rounded PER ATTENDANCE before summing. MSA 1.5 makes the minimum apply to
     // each confirmed attendance, so three short visits are three minimums;
     // rounding the aggregate instead would bill for one.
+    //
+    // And rounded under the terms in force WHEN THAT ATTENDANCE HAPPENED, so a
+    // later change to the increment or the minimum cannot reach backwards.
+    const termsThen =
+      termsForInstant(termVersions, e.startedAt, {
+        weekendDays: terms.weekendDays,
+        timezone: terms.timezone,
+      }) ?? terms;
     agg.seconds += billableSeconds(
       durationSeconds(e.startedAt, e.stoppedAt as string),
-      terms,
+      termsThen,
       e.startedAt,
     );
     perTask.set(e.taskId, agg);
@@ -482,14 +519,22 @@ export async function listAllCustomers(env: Env): Promise<Customer[]> {
 export async function updateCustomer(
   env: Env,
   id: number,
-  c: { name: string; address: string; email: string; notes: string; workdriveFolderId: string | null },
+  c: {
+    name: string;
+    address: string;
+    email: string;
+    notes: string;
+    workdriveFolderId: string | null;
+    noticeDays: number | null;
+  },
 ): Promise<void> {
   await db(env)
     .prepare(
-      `UPDATE customers SET name = ?, address = ?, email = ?, notes = ?, workdrive_folder_id = ?
+      `UPDATE customers SET name = ?, address = ?, email = ?, notes = ?, workdrive_folder_id = ?,
+              notice_days = ?
         WHERE id = ?`,
     )
-    .bind(c.name, c.address, c.email, c.notes, c.workdriveFolderId, id)
+    .bind(c.name, c.address, c.email, c.notes, c.workdriveFolderId, c.noticeDays, id)
     .run();
 }
 
@@ -553,4 +598,98 @@ export async function listAllRoutes(env: Env): Promise<Route[]> {
     .prepare('SELECT * FROM routes ORDER BY active DESC, label')
     .all<Route>();
   return results ?? [];
+}
+
+// ---- Effective-dated terms -------------------------------------------------
+
+export async function listTermVersions(env: Env): Promise<TermVersion[]> {
+  const { results } = await db(env)
+    .prepare('SELECT * FROM term_versions ORDER BY effective_from DESC, id DESC')
+    .all<TermVersion>();
+  return results ?? [];
+}
+
+export async function createTermVersion(
+  env: Env,
+  v: {
+    effectiveFrom: string;
+    basis: string;
+    agreedWith: string;
+    billingIncrementMinutes: number;
+    minimumCallOut: string;
+    mileageRateCents: number;
+    mileageBillable: boolean;
+    recordedBy: string;
+    note: string;
+  },
+): Promise<number> {
+  const r = await db(env)
+    .prepare(
+      `INSERT INTO term_versions
+         (effective_from, basis, agreed_with, billing_increment_minutes, minimum_callout,
+          mileage_rate_cents, mileage_billable, recorded_by, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      v.effectiveFrom,
+      v.basis,
+      v.agreedWith,
+      v.billingIncrementMinutes,
+      v.minimumCallOut,
+      v.mileageRateCents,
+      v.mileageBillable ? 1 : 0,
+      v.recordedBy,
+      v.note,
+    )
+    .run();
+  return r.meta.last_row_id as number;
+}
+
+/** Every task's rate history, newest first, keyed by task. */
+export async function taskRateHistory(env: Env): Promise<Map<number, TaskRateVersion[]>> {
+  const { results } = await db(env)
+    .prepare('SELECT * FROM task_rate_versions ORDER BY task_id, effective_from DESC, id DESC')
+    .all<TaskRateVersion>();
+  const byTask = new Map<number, TaskRateVersion[]>();
+  for (const r of results ?? []) {
+    const list = byTask.get(r.task_id) ?? [];
+    list.push(r);
+    byTask.set(r.task_id, list);
+  }
+  return byTask;
+}
+
+export async function createTaskRateVersion(
+  env: Env,
+  v: { taskId: number; effectiveFrom: string; rateCentsPerHour: number; recordedBy: string; note: string },
+): Promise<number> {
+  const r = await db(env)
+    .prepare(
+      `INSERT INTO task_rate_versions (task_id, effective_from, rate_cents_per_hour, recorded_by, note)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind(v.taskId, v.effectiveFrom, v.rateCentsPerHour, v.recordedBy, v.note)
+    .run();
+  return r.meta.last_row_id as number;
+}
+
+/**
+ * When the most recent ALREADY-INVOICED work was performed.
+ *
+ * Used to refuse a term version whose effective date would restate a period
+ * that has already been billed. The invoice itself is safe -- its lines are
+ * frozen -- but a stored invoice disagreeing with what the terms now say is
+ * exactly what cannot be explained two years later in a dispute.
+ */
+export async function latestInvoicedWorkAt(env: Env): Promise<string | null> {
+  const row = await db(env)
+    .prepare(
+      `SELECT MAX(t) AS latest FROM (
+         SELECT MAX(started_at) AS t FROM time_entries WHERE invoice_id IS NOT NULL
+         UNION ALL
+         SELECT MAX(occurred_local) AS t FROM mileage_entries WHERE invoice_id IS NOT NULL
+       )`,
+    )
+    .first<{ latest: string | null }>();
+  return row?.latest ?? null;
 }
