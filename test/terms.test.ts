@@ -14,6 +14,8 @@ function tv(id: number, effective: string, extra: Partial<TermVersion> = {}): Te
   return {
     id,
     effective_from: effective,
+    basis: 'notice',
+    agreed_with: '',
     billing_increment_minutes: 15,
     minimum_callout: '60',
     mileage_rate_cents: 76,
