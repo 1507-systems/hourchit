@@ -128,38 +128,52 @@ export function renderDashboard(d: DashboardData): string {
          </form>`
       : `<p class="muted">Nothing unbilled to invoice yet.</p>`;
 
+  // Two columns on a desktop, ONE on a phone, and the phone is the design
+  // target -- this is a business run from a pocket. The split is doing rather
+  // than reading: everything on the left is something the operator ACTS on
+  // while the job is happening (start a timer, log the trip home, answer a
+  // message), everything on the right is what they LOOK AT afterwards.
+  //
+  // Collapsed to one column the source order still reads correctly, act-first
+  // then review, so the phone does not need its own ordering rules.
   const body = `
     ${flash}
-    ${timer}
+    <div class="cols">
+      <div class="col">
+        ${timer}
 
-    <div class="card">
-      <h2>Unbilled by task${d.customer ? ` · ${esc(d.customer.name)}` : ''}</h2>
-      ${
-        d.tasks.length
-          ? `<table><thead><tr><th>Task</th><th class="num">Rate</th><th class="num">On the clock</th></tr></thead><tbody>${taskRows}</tbody></table>`
-          : '<p class="muted">No tasks yet.</p>'
-      }
-    </div>
+        ${mileageForm}
 
-    ${mileageForm}
+        <div class="card">
+          <h2>Mail</h2>
+          <p style="margin:.2rem 0"><a href="/mail">Open mail</a></p>
+          <p class="muted" style="margin:.2rem 0;font-size:.85rem">
+            Messages to this business, kept with the job rather than in a personal inbox.
+          </p>
+        </div>
+      </div>
 
-    <div class="card">
-      <h2>Recent mileage</h2>
-      ${mileageList}
-    </div>
+      <div class="col">
+        <div class="card">
+          <h2>Invoices</h2>
+          ${createInvoice}
+          <div style="margin-top:.8rem">${invoiceRows}</div>
+        </div>
 
-    <div class="card">
-      <h2>Mail</h2>
-      <p style="margin:.2rem 0"><a href="/mail">Open mail</a></p>
-      <p class="muted" style="margin:.2rem 0;font-size:.85rem">
-        Messages to this business, kept with the job rather than in a personal inbox.
-      </p>
-    </div>
+        <div class="card">
+          <h2>Unbilled by task${d.customer ? ` · ${esc(d.customer.name)}` : ''}</h2>
+          ${
+            d.tasks.length
+              ? `<table><thead><tr><th>Task</th><th class="num">Rate</th><th class="num">On the clock</th></tr></thead><tbody>${taskRows}</tbody></table>`
+              : '<p class="muted">No tasks yet.</p>'
+          }
+        </div>
 
-    <div class="card">
-      <h2>Invoices</h2>
-      ${createInvoice}
-      <div style="margin-top:.8rem">${invoiceRows}</div>
+        <div class="card">
+          <h2>Recent mileage</h2>
+          ${mileageList}
+        </div>
+      </div>
     </div>
 
     <script>
