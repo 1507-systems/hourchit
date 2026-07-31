@@ -77,7 +77,7 @@ export function renderInvoice(args: {
   th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
   tfoot td{border:0;padding-top:.4rem}
   tfoot .total{font-weight:700;font-size:1.15rem;border-top:2px solid #1f2328}
-  .actions{margin:1.5rem 0}
+  .actions{margin:1.5rem 0;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
   button{font-size:1rem;padding:.55rem 1rem;border-radius:.4rem;border:0;background:#1f6feb;color:#fff;cursor:pointer}
   button.secondary{background:#eaeef2;color:#1f2328}
   /* .status is INTERNAL WORKFLOW STATE, not part of the invoice. It is hidden
@@ -132,12 +132,17 @@ export function renderInvoice(args: {
   </table>
 
   <div class="actions">
-    <button onclick="window.print()">Print / Save PDF</button>
+    <a href="/invoices/${invoice.id}/email" style="text-decoration:none"><button>Email to client</button></a>
+    <button class="secondary" onclick="window.print()">Print / Save PDF</button>
     ${
+      /* "Mark sent" stays available after emailing, because an invoice can also
+         leave by a route the app never sees -- handed over on site, posted, or
+         sent from the operator's own mailbox. Emailing marks it sent by itself;
+         this is for everything else. */
       invoice.status === 'draft'
         ? `<form method="post" action="/invoices/${invoice.id}/send" style="display:inline">
              <input type="hidden" name="method" value="print">
-             <button class="secondary" type="submit">Mark sent</button>
+             <button class="secondary" type="submit">Mark sent by hand</button>
            </form>`
         : ''
     }

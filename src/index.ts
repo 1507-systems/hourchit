@@ -70,9 +70,11 @@ import { parseDuration } from './domain/duration';
 import { localDateString, utcToZonedWallTime, zonedWallTimeToUtc } from './domain/localtime';
 import { renderNotice } from './ui/notice';
 import type { MinimumCallOut } from './domain/billing';
-import { getThread, listThreads, storeOutbound, threadMessages } from './inbox';
+import { getThread, listThreads, openOutboundThread, storeOutbound, threadMessages } from './inbox';
 import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
+import { renderInvoiceSend } from './ui/invoice-send';
+import { invoiceEmailHtml, invoiceEmailSubject, invoiceEmailText } from './mail/invoice-email';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -313,6 +315,24 @@ function escapeText(s: string): string {
 function tenantAddress(c: Context<{ Bindings: Env }>): string {
   const domain = c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app';
   return `${c.env.TENANT_PROFILE}@${domain}`;
+}
+
+/**
+ * Who an invoice comes FROM, and it is not the same address as a login code.
+ *
+ * Bryce's four-party rule, 2026-07-30: anything from HourChit (the 1507
+ * product) to ITS users -- a tenant like Matt's A/V -- comes from the hourchit
+ * apex, because that is the app speaking as itself. Anything from a TENANT to
+ * THEIR OWN clients comes from hosted.hourchit.app, unless that tenant has
+ * configured their own mail. "Think of it like how Zoho runs."
+ *
+ * An invoice is squarely the second: Matt's A/V billing the University of
+ * Bridgeport. Sending it from noreply@hourchit.app would put a vendor the
+ * client has never heard of on a demand for money, which is both confusing and
+ * exactly the shape of an invoice-fraud email.
+ */
+function invoiceMailFrom(c: Context<{ Bindings: Env }>): string {
+  return tenantAddress(c);
 }
 
 // ---- Billing terms ---------------------------------------------------------
@@ -905,6 +925,134 @@ app.post('/invoices/:id/send', async (c) => {
   // Email delivery is a pluggable stub for round one; "print" just marks it sent.
   await markInvoiceSent(c.env, id, method, new Date().toISOString());
   return c.redirect(`/invoices/${id}`);
+});
+
+
+// ---- Sending an invoice ----------------------------------------------------
+
+/**
+ * Everything needed to compose and send one invoice, or a reason we cannot.
+ *
+ * Assembled once and shared by the confirm page and the send itself, so what
+ * the operator was shown and what actually goes out cannot drift apart. Two
+ * separate assemblies would eventually disagree, and the confirm step exists
+ * precisely so that nothing goes out unseen.
+ */
+async function invoiceEmailFor(c: Context<{ Bindings: Env }>, id: number) {
+  const invoice = await getInvoice(c.env, id);
+  if (!invoice) return null;
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const customer = await getCustomer(c.env, invoice.customer_id);
+  const lines = await invoiceLines(c.env, id);
+
+  const view = {
+    invoice,
+    lines,
+    business: profile.business,
+    customer: { name: customer?.name ?? 'Client' },
+  };
+  return {
+    invoice,
+    customer,
+    profile,
+    view,
+    to: customer?.email?.trim() ? customer.email.trim() : null,
+    subject: invoiceEmailSubject(view),
+  };
+}
+
+app.get('/invoices/:id/email', async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await invoiceEmailFor(c, id);
+  if (!ctx) return c.notFound();
+
+  return c.html(
+    renderInvoiceSend(
+      {
+        business: ctx.profile.business.name,
+        invoice: ctx.invoice,
+        customerName: ctx.customer?.name ?? 'Client',
+        to: ctx.to,
+        from: invoiceMailFrom(c),
+        subject: ctx.subject,
+        previewHtml: invoiceEmailHtml(ctx.view),
+        alreadySent: ctx.invoice.sent_at
+          ? { at: ctx.invoice.sent_at, method: ctx.invoice.sent_method ?? 'unknown' }
+          : null,
+      },
+      flashHtml(c),
+    ),
+  );
+});
+
+app.post('/invoices/:id/email', async (c) => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const ctx = await invoiceEmailFor(c, id);
+  if (!ctx) return c.notFound();
+
+  if (!ctx.to) {
+    return c.redirect(
+      `/invoices/${id}/email?err=` +
+        encodeURIComponent(`${ctx.customer?.name ?? 'This client'} has no billing email address.`),
+    );
+  }
+
+  // A resend needs an explicit acknowledgement, not just a second click. The
+  // client receives a second copy of the SAME invoice number, which reads as a
+  // duplicate charge or a chase depending on who opens it -- and accounts
+  // payable treat those very differently.
+  if (ctx.invoice.sent_at && String(b.confirmResend ?? '') !== '1') {
+    return c.redirect(
+      `/invoices/${id}/email?err=` +
+        encodeURIComponent(
+          'This invoice was already sent. Tick the box to confirm a second copy should go out.',
+        ),
+    );
+  }
+
+  const from = invoiceMailFrom(c);
+  const text = invoiceEmailText(ctx.view);
+  const html = invoiceEmailHtml(ctx.view);
+
+  let messageId: string | null = null;
+  try {
+    const sent = await sendMail(c.env.EMAIL, from, {
+      to: ctx.to,
+      subject: ctx.subject,
+      text,
+      html,
+    });
+    messageId = sent.messageId;
+  } catch (e) {
+    // Do NOT mark it sent. An invoice recorded as sent that never left is worse
+    // than one that failed loudly: the operator stops chasing it, and the first
+    // anyone notices is when payment does not arrive.
+    return c.redirect(
+      `/invoices/${id}/email?err=` +
+        encodeURIComponent(`Not sent: ${(e as Error).message}`),
+    );
+  }
+
+  // Log it where the client's reply will land. Recording the Message-ID is what
+  // lets their answer thread back onto this invoice rather than arriving as an
+  // orphan about "your email".
+  const threadId = await openOutboundThread(c.env, ctx.invoice.customer_id, ctx.subject);
+  await storeOutbound(c.env, {
+    threadId,
+    messageId,
+    inReplyTo: null,
+    references: '',
+    fromAddr: from,
+    toAddrs: [ctx.to],
+    subject: ctx.subject,
+    bodyText: text,
+  });
+
+  await markInvoiceSent(c.env, id, 'email', new Date().toISOString());
+  return c.redirect(
+    `/invoices/${id}?ok=` + encodeURIComponent(`Sent to ${ctx.to}`),
+  );
 });
 
 function readFlash(ok?: string, err?: string) {
