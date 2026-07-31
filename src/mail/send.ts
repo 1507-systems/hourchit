@@ -31,7 +31,19 @@
  * is one method with four fields.
  */
 export interface SendEmailBinding {
-  send(message: { to: string; from: string; subject: string; text?: string; html?: string }): Promise<void>;
+  send(message: {
+    to: string;
+    from: string;
+    subject: string;
+    text?: string;
+    html?: string;
+    /**
+     * Threading and other RFC headers. Cloudflare documents In-Reply-To and
+     * References here, which is what lets a reply we send land in the same
+     * thread in the client's mail app rather than starting a new one.
+     */
+    headers?: Record<string, string>;
+  }): Promise<{ messageId?: string } | void>;
 }
 
 export interface OutboundMessage {
@@ -39,6 +51,10 @@ export interface OutboundMessage {
   subject: string;
   text: string;
   html?: string;
+  /** Message-ID being replied to, if any. Sets In-Reply-To and seeds References. */
+  inReplyTo?: string | null;
+  /** Existing References chain, oldest first, space separated. */
+  references?: string | null;
 }
 
 export class MailNotConfiguredError extends Error {
@@ -60,15 +76,44 @@ export async function sendMail(
   binding: SendEmailBinding | undefined,
   from: string | undefined,
   msg: OutboundMessage,
-): Promise<void> {
+): Promise<{ messageId: string | null }> {
   if (!binding || !from) throw new MailNotConfiguredError();
-  await binding.send({
+
+  const headers = threadingHeaders(msg);
+  const result = await binding.send({
     to: msg.to,
     from,
     subject: msg.subject,
     text: msg.text,
     ...(msg.html ? { html: msg.html } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
   });
+
+  // The binding reports the Message-ID it assigned. Recording it is what lets
+  // the recipient's REPLY thread back to this message: their client will put
+  // this id in In-Reply-To, and storeInbound matches on ids it has seen.
+  const messageId =
+    result && typeof result === 'object' && typeof result.messageId === 'string'
+      ? result.messageId
+      : null;
+  return { messageId };
+}
+
+/**
+ * In-Reply-To and References for a reply.
+ *
+ * References accumulates the whole chain, oldest first, because that is what
+ * mail clients walk to group a conversation; In-Reply-To names only the direct
+ * parent. Capped at 100 entries, which is the point Cloudflare rejects a reply
+ * to prevent loops -- keeping the NEWEST is right, since those are the ones a
+ * client actually matches against.
+ */
+export function threadingHeaders(msg: OutboundMessage): Record<string, string> {
+  if (!msg.inReplyTo) return {};
+  const prior = (msg.references ?? '').match(/<[^>]+>/g) ?? [];
+  const chain = [...prior, msg.inReplyTo].filter((id, i, all) => all.indexOf(id) === i);
+  const capped = chain.slice(-100);
+  return { 'In-Reply-To': msg.inReplyTo, References: capped.join(' ') };
 }
 
 /**

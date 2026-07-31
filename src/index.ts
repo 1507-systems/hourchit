@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { handleEmail } from './email';
 import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
@@ -41,6 +41,9 @@ import {
   getRunningEntry,
 } from './db';
 import { renderDashboard, TaskView } from './ui/dashboard';
+import { renderMailList, renderThread } from './ui/mail';
+import { getThread, listThreads, storeOutbound, threadMessages } from './inbox';
+import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -224,6 +227,97 @@ app.post('/mileage', async (c) => {
     ? `Billable (${classification.reason})`
     : 'Not billable (daytime)';
   return c.redirect('/?ok=' + encodeURIComponent(`Logged ${miles} mi: ${verdict}`));
+});
+
+/**
+ * The tenant's own outward address, <tenant>@<hosted mail domain>.
+ *
+ * Distinct from LOGIN_MAIL_FROM, which is HourChit's product mail to the
+ * operator and rides 1507 Systems' domain. Client-facing mail must come from
+ * the tenant's identity, because the client has a relationship with the tenant.
+ */
+function flashHtml(c: Context<{ Bindings: Env }>): string {
+  const ok = c.req.query('ok');
+  const err = c.req.query('err');
+  if (err) return `<p class="err">${escapeText(err)}</p>`;
+  if (ok) return `<p class="ok">${escapeText(ok)}</p>`;
+  return '';
+}
+
+function escapeText(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) =>
+    ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '"' ? '&quot;' : '&#39;',
+  );
+}
+
+function tenantAddress(c: Context<{ Bindings: Env }>): string {
+  const domain = c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app';
+  return `${c.env.TENANT_PROFILE}@${domain}`;
+}
+
+app.get('/mail', async (c) => {
+  const threads = await listThreads(c.env);
+  return c.html(renderMailList(threads, flashHtml(c)));
+});
+
+app.get('/mail/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  const thread = await getThread(c.env, id);
+  if (!thread) return c.notFound();
+  const messages = await threadMessages(c.env, id);
+  // Reply to the last INBOUND sender: replying to our own last outbound would
+  // mail ourselves, and picking an arbitrary recipient is what turns a
+  // transactional thread view into a mail client.
+  const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound');
+  return c.html(
+    renderThread(id, thread.subject, messages, lastInbound?.from_addr ?? '', flashHtml(c)),
+  );
+});
+
+app.post('/mail/:id/reply', async (c) => {
+  const id = Number(c.req.param('id'));
+  const body = await c.req.parseBody();
+  const text = String(body.body ?? '').trim();
+  if (!text) return c.redirect(`/mail/${id}?err=` + encodeURIComponent('Write something first'));
+
+  const thread = await getThread(c.env, id);
+  if (!thread) return c.notFound();
+  const messages = await threadMessages(c.env, id);
+  const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound');
+  if (!lastInbound) {
+    return c.redirect(`/mail/${id}?err=` + encodeURIComponent('Nothing to reply to yet'));
+  }
+
+  const from = tenantAddress(c);
+  const subject = /^re:/i.test(thread.subject) ? thread.subject : `Re: ${thread.subject}`;
+
+  try {
+    const { messageId } = await sendMail(c.env.EMAIL, from, {
+      to: lastInbound.from_addr,
+      subject,
+      text,
+      inReplyTo: lastInbound.message_id,
+      references: lastInbound.references_raw,
+    });
+    // Recorded only AFTER a successful send. A row claiming we sent something
+    // we did not would later read as proof of a notice that never left.
+    await storeOutbound(c.env, {
+      threadId: id,
+      messageId,
+      inReplyTo: lastInbound.message_id,
+      references: [lastInbound.references_raw, lastInbound.message_id]
+        .filter(Boolean)
+        .join(' ')
+        .trim(),
+      fromAddr: from,
+      toAddrs: [lastInbound.from_addr],
+      subject,
+      bodyText: text,
+    });
+    return c.redirect(`/mail/${id}?ok=` + encodeURIComponent('Reply sent'));
+  } catch (e) {
+    return c.redirect(`/mail/${id}?err=` + encodeURIComponent((e as Error).message));
+  }
 });
 
 app.post('/invoices', async (c) => {

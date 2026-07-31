@@ -149,6 +149,14 @@ export function renderDashboard(d: DashboardData): string {
     </div>
 
     <div class="card">
+      <h2>Mail</h2>
+      <p style="margin:.2rem 0"><a href="/mail">Open mail</a></p>
+      <p class="muted" style="margin:.2rem 0;font-size:.85rem">
+        Messages to this business, kept with the job rather than in a personal inbox.
+      </p>
+    </div>
+
+    <div class="card">
       <h2>Invoices</h2>
       ${createInvoice}
       <div style="margin-top:.8rem">${invoiceRows}</div>
