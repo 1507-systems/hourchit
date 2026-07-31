@@ -13,6 +13,8 @@ export interface Customer {
   address: string;
   email: string;
   archived: number;
+  workdrive_folder_id: string | null;
+  notes: string;
 }
 
 export interface Task {
@@ -30,6 +32,7 @@ export interface Route {
   from_address: string;
   to_address: string;
   one_way_miles: number;
+  active: number;
 }
 
 export interface Invoice {
@@ -79,11 +82,11 @@ export async function getCustomer(env: Env, id: number): Promise<Customer | null
 
 export async function createCustomer(
   env: Env,
-  c: { name: string; address: string; email: string },
+  c: { name: string; address: string; email: string; notes?: string },
 ): Promise<number> {
   const r = await db(env)
-    .prepare('INSERT INTO customers (name, address, email) VALUES (?, ?, ?)')
-    .bind(c.name, c.address, c.email)
+    .prepare('INSERT INTO customers (name, address, email, notes) VALUES (?, ?, ?, ?)')
+    .bind(c.name, c.address, c.email, c.notes ?? '')
     .run();
   return r.meta.last_row_id as number;
 }
@@ -465,4 +468,89 @@ function invoicePeriod(
     ...mileage.map((m) => m.occurred_local.slice(0, 10)),
   ].sort();
   return dates.length ? { start: dates[0], end: dates[dates.length - 1] } : { start: null, end: null };
+}
+
+// ---- Client management -----------------------------------------------------
+
+export async function listAllCustomers(env: Env): Promise<Customer[]> {
+  const { results } = await db(env)
+    .prepare('SELECT * FROM customers ORDER BY archived, name')
+    .all<Customer>();
+  return results ?? [];
+}
+
+export async function updateCustomer(
+  env: Env,
+  id: number,
+  c: { name: string; address: string; email: string; notes: string; workdriveFolderId: string | null },
+): Promise<void> {
+  await db(env)
+    .prepare(
+      `UPDATE customers SET name = ?, address = ?, email = ?, notes = ?, workdrive_folder_id = ?
+        WHERE id = ?`,
+    )
+    .bind(c.name, c.address, c.email, c.notes, c.workdriveFolderId, id)
+    .run();
+}
+
+/**
+ * Customers are ARCHIVED, never deleted.
+ *
+ * An invoice, a time entry and a mileage row all reference the customer they
+ * were for. Deleting one would orphan the meaning of money that has already
+ * moved, and "who was this for" is exactly the question asked years later.
+ */
+export async function setCustomerArchived(env: Env, id: number, archived: boolean): Promise<void> {
+  await db(env)
+    .prepare('UPDATE customers SET archived = ? WHERE id = ?')
+    .bind(archived ? 1 : 0, id)
+    .run();
+}
+
+export async function updateTask(
+  env: Env,
+  id: number,
+  t: { name: string; description: string; rateCentsPerHour: number },
+): Promise<void> {
+  await db(env)
+    .prepare('UPDATE tasks SET name = ?, description = ?, rate_cents_per_hour = ? WHERE id = ?')
+    .bind(t.name, t.description, t.rateCentsPerHour, id)
+    .run();
+}
+
+export async function setTaskActive(env: Env, id: number, active: boolean): Promise<void> {
+  await db(env).prepare('UPDATE tasks SET active = ? WHERE id = ?').bind(active ? 1 : 0, id).run();
+}
+
+/** Every task for a customer, including inactive ones, for the management view. */
+export async function listAllTasks(env: Env, customerId: number): Promise<Task[]> {
+  const { results } = await db(env)
+    .prepare('SELECT * FROM tasks WHERE customer_id = ? ORDER BY active DESC, name')
+    .bind(customerId)
+    .all<Task>();
+  return results ?? [];
+}
+
+export async function updateRoute(
+  env: Env,
+  id: number,
+  r: { label: string; fromAddress: string; toAddress: string; oneWayMiles: number },
+): Promise<void> {
+  await db(env)
+    .prepare(
+      'UPDATE routes SET label = ?, from_address = ?, to_address = ?, one_way_miles = ? WHERE id = ?',
+    )
+    .bind(r.label, r.fromAddress, r.toAddress, r.oneWayMiles, id)
+    .run();
+}
+
+export async function setRouteActive(env: Env, id: number, active: boolean): Promise<void> {
+  await db(env).prepare('UPDATE routes SET active = ? WHERE id = ?').bind(active ? 1 : 0, id).run();
+}
+
+export async function listAllRoutes(env: Env): Promise<Route[]> {
+  const { results } = await db(env)
+    .prepare('SELECT * FROM routes ORDER BY active DESC, label')
+    .all<Route>();
+  return results ?? [];
 }

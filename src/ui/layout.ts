@@ -20,6 +20,9 @@ main{max-width:44rem;margin:0 auto;padding:1rem}
   .cols{grid-template-columns:1fr 1fr;gap:0 1.2rem;align-items:start}
 }
 h1,h2{margin:1.2rem 0 .6rem;font-size:1.1rem}
+.tag{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+  border:1px solid var(--line);border-radius:.25rem;padding:.05rem .3rem}
+.linkish{background:none;border:0;color:var(--accent);cursor:pointer;padding:0;font:inherit}
 .card{background:var(--card);border:1px solid var(--line);border-radius:.6rem;padding:1rem;margin:.7rem 0}
 label{display:block;font-size:.85rem;color:var(--muted);margin:.5rem 0 .1rem}
 input,select,button,textarea{font-size:1rem;padding:.55rem;border-radius:.4rem;border:1px solid var(--line);background:var(--bg);color:var(--fg);width:100%}
@@ -48,7 +51,8 @@ export function layout(opts: { title: string; business: string; body: string }):
 <body>
 <header>
   <span class="biz">${esc(opts.business)}</span>
-  <nav><a href="/">Dashboard</a> &nbsp; <a href="/logout">Sign out</a></nav>
+  <nav><a href="/">Dashboard</a> &nbsp; <a href="/clients">Clients</a> &nbsp;
+    <a href="/mail">Mail</a> &nbsp; <a href="/logout">Sign out</a></nav>
 </header>
 <main>${opts.body}</main>
 </body></html>`;

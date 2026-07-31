@@ -21,12 +21,22 @@ import { amountCentsFor, billableSeconds, type BillingTerms } from './domain/bil
 import { mileageAmountCents } from './domain/money';
 import {
   createInvoiceForCustomer,
+  createCustomer,
   createMileage,
+  createRoute,
+  createTask,
   getInvoice,
   getRoute,
   getTask,
   invoiceContents,
   invoiceLines,
+  listAllCustomers,
+  listAllRoutes,
+  listAllTasks,
+  setCustomerArchived,
+  setRouteActive,
+  setTaskActive,
+  updateCustomer,
   listCustomers,
   listInvoices,
   listRecentMileage,
@@ -42,6 +52,7 @@ import {
 } from './db';
 import { renderDashboard, TaskView } from './ui/dashboard';
 import { renderMailList, renderThread } from './ui/mail';
+import { renderClient, renderClients } from './ui/clients';
 import { getThread, listThreads, storeOutbound, threadMessages } from './inbox';
 import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
@@ -254,6 +265,117 @@ function tenantAddress(c: Context<{ Bindings: Env }>): string {
   const domain = c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app';
   return `${c.env.TENANT_PROFILE}@${domain}`;
 }
+
+// ---- Client management -----------------------------------------------------
+
+app.get('/clients', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  return c.html(renderClients(profile.business.name, await listAllCustomers(c.env), flashHtml(c)));
+});
+
+app.post('/clients', async (c) => {
+  const b = await c.req.parseBody();
+  const name = String(b.name ?? '').trim();
+  if (!name) return c.redirect('/clients?err=' + encodeURIComponent('A client needs a name'));
+  const id = await createCustomer(c.env, {
+    name,
+    address: String(b.address ?? ''),
+    email: String(b.email ?? ''),
+  });
+  return c.redirect(`/clients/${id}?ok=` + encodeURIComponent('Client added'));
+});
+
+app.get('/clients/:id', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const id = Number(c.req.param('id'));
+  const customer = await getCustomer(c.env, id);
+  if (!customer) return c.notFound();
+  return c.html(
+    renderClient(
+      profile.business.name,
+      customer,
+      await listAllTasks(c.env, id),
+      await listAllRoutes(c.env),
+      flashHtml(c),
+    ),
+  );
+});
+
+app.post('/clients/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const folder = String(b.workdriveFolderId ?? '').trim();
+  await updateCustomer(c.env, id, {
+    name: String(b.name ?? '').trim(),
+    address: String(b.address ?? ''),
+    email: String(b.email ?? ''),
+    notes: String(b.notes ?? ''),
+    workdriveFolderId: folder.length > 0 ? folder : null,
+  });
+  return c.redirect(`/clients/${id}?ok=` + encodeURIComponent('Saved'));
+});
+
+app.post('/clients/:id/archived', async (c) => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const archived = String(b.archived ?? '0') === '1';
+  await setCustomerArchived(c.env, id, archived);
+  return c.redirect(
+    `/clients/${id}?ok=` + encodeURIComponent(archived ? 'Client archived' : 'Client restored'),
+  );
+});
+
+app.post('/clients/:id/tasks', async (c) => {
+  const customerId = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const name = String(b.name ?? '').trim();
+  const dollars = Number(b.rate);
+  if (!name || !Number.isFinite(dollars) || dollars < 0) {
+    return c.redirect(`/clients/${customerId}?err=` + encodeURIComponent('Task needs a name and a rate'));
+  }
+  await createTask(c.env, {
+    customerId,
+    name,
+    description: String(b.description ?? ''),
+    // Dollars in the form, cents in the database. Rounding here rather than
+    // storing a float keeps every later multiplication exact.
+    rateCentsPerHour: Math.round(dollars * 100),
+  });
+  return c.redirect(`/clients/${customerId}?ok=` + encodeURIComponent('Task added'));
+});
+
+app.post('/tasks/:id/active', async (c) => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const task = await getTask(c.env, id);
+  await setTaskActive(c.env, id, String(b.active ?? '1') === '1');
+  return c.redirect(task ? `/clients/${task.customer_id}` : '/clients');
+});
+
+app.post('/routes', async (c) => {
+  const b = await c.req.parseBody();
+  const label = String(b.label ?? '').trim();
+  const miles = Number(b.oneWayMiles);
+  if (!label || !Number.isFinite(miles) || miles <= 0) {
+    // The zero-mileage guard again: a route with no distance bills nothing per
+    // trip while looking like it works, which is the expensive kind of wrong.
+    return c.redirect('/clients?err=' + encodeURIComponent('A route needs a label and a distance above zero'));
+  }
+  await createRoute(c.env, {
+    label,
+    fromAddress: String(b.fromAddress ?? ''),
+    toAddress: String(b.toAddress ?? ''),
+    oneWayMiles: miles,
+  });
+  return c.redirect(c.req.header('referer') ?? '/clients');
+});
+
+app.post('/routes/:id/active', async (c) => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  await setRouteActive(c.env, id, String(b.active ?? '1') === '1');
+  return c.redirect(c.req.header('referer') ?? '/clients');
+});
 
 app.get('/mail', async (c) => {
   const threads = await listThreads(c.env);
