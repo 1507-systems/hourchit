@@ -46,12 +46,18 @@ describe('versionAt', () => {
     expect(versionAt(VERSIONS, '2026-08-01 00:00:00')?.id).toBe(2);
   });
 
-  it('falls back to the OLDEST version for work predating every version', () => {
-    // Deliberate: work recorded before anyone wrote terms down was still
-    // performed under some understanding, and the earliest recorded terms are
-    // the closest honest approximation. Throwing would make an old time entry
-    // unbillable, which helps nobody.
-    expect(versionAt(VERSIONS, '2020-01-01 00:00:00')?.id).toBe(1);
+  it('returns NULL for work predating every version, so the profile applies', () => {
+    // THE TRAP THIS GUARDS. Falling back to the oldest VERSION would mean that
+    // recording a term effective 1 September retroactively repriced August --
+    // the exact failure the feature exists to prevent. Null sends the caller to
+    // the tenant profile, which is the implicit version zero.
+    expect(versionAt(VERSIONS, '2020-01-01 00:00:00')).toBeNull();
+  });
+
+  it('resolves to the profile when the ONLY version is in the future', () => {
+    const future = [tv(1, '2026-09-01 00:00:00')];
+    expect(versionAt(future, '2026-08-15 00:00:00')).toBeNull();
+    expect(versionAt(future, '2026-09-02 00:00:00')?.id).toBe(1);
   });
 
   it('returns null when there are no versions at all', () => {

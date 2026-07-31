@@ -44,21 +44,26 @@ export interface TaskRateVersion {
  * Versions are assumed sorted newest-first, which is how the index returns
  * them. Returns the newest whose effective_from is at or before the instant.
  *
- * FALLBACK, and it is deliberate: if the instant precedes EVERY version, the
- * OLDEST version applies rather than throwing. Work recorded before anyone
- * wrote terms down was still performed under some understanding, and the
- * earliest recorded terms are the closest honest approximation. Throwing would
- * make an old time entry unbillable, which helps nobody.
+ * RETURNS NULL WHEN THE INSTANT PRECEDES EVERY VERSION, and that is the
+ * important case. The caller then falls back to the TENANT PROFILE, which is
+ * the implicit version zero -- the terms that were in force before anyone
+ * recorded one.
+ *
+ * Falling back to the OLDEST VERSION instead would be a trap, and this was
+ * written that way first: with a single version effective 1 September, work
+ * performed in August would resolve to September's terms. Recording a term
+ * version would retroactively reprice every hour that came before it, which is
+ * the exact failure this whole feature exists to prevent. Caught by testing
+ * against real data rather than by reading the code.
  */
 export function versionAt<T extends { effective_from: string }>(
   versionsNewestFirst: T[],
   instant: string,
 ): T | null {
-  if (versionsNewestFirst.length === 0) return null;
   for (const v of versionsNewestFirst) {
     if (v.effective_from <= instant) return v;
   }
-  return versionsNewestFirst[versionsNewestFirst.length - 1];
+  return null;
 }
 
 /**
