@@ -297,7 +297,9 @@ export function renderNotice(v: NoticeView): string {
            .join('')}
          </tbody></table>`
       : v.before
-        ? '<p>The terms themselves are unchanged; this notice records the date they were restated.</p>'
+        ? `<p>The terms themselves are unchanged; this ${
+            v.basis === 'agreement' ? 'confirmation' : 'notice'
+          } records the date they were restated.</p>`
         : ''
   }
 
