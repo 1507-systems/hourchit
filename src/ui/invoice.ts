@@ -132,7 +132,7 @@ function groupTime(contents: InvoiceContents, terms: BillingTerms) {
     const g = map.get(e.taskId) ?? { name: e.taskName, rate: e.rateCentsPerHour, seconds: 0, amount: 0 };
     // Rounded PER ATTENDANCE before summing, exactly as createInvoiceForCustomer
     // does it, because the minimum applies to each confirmed attendance.
-    g.seconds += billableSeconds(raw, terms);
+    g.seconds += billableSeconds(raw, terms, e.startedAt);
     map.set(e.taskId, g);
   }
   for (const g of map.values()) {

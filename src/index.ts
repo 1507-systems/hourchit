@@ -14,10 +14,10 @@ import {
   tokenLoginPage,
 } from './auth';
 import { loadProfile } from './config/profiles';
-import { mileageRuleFromSettings } from './config/profile';
+import { mileageRuleFromSettings, type TenantProfile } from './config/profile';
 import { classifyTrip, routeTableDistance } from './domain/mileage';
 import { durationSeconds } from './domain/time';
-import { amountCentsFor, billableSeconds } from './domain/billing';
+import { amountCentsFor, billableSeconds, type BillingTerms } from './domain/billing';
 import { mileageAmountCents } from './domain/money';
 import {
   createInvoiceForCustomer,
@@ -43,6 +43,20 @@ import { renderDashboard, TaskView } from './ui/dashboard';
 import { renderInvoice } from './ui/invoice';
 
 const app = new Hono<{ Bindings: Env }>();
+
+/**
+ * The tenant's billing terms in one place, so every caller reads the same
+ * fields. weekendDays and timezone travel with the terms because a day-split
+ * minimum cannot be resolved without them.
+ */
+function termsFor(profile: TenantProfile): BillingTerms {
+  return {
+    incrementMinutes: profile.settings.billingIncrementMinutes,
+    minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
+    weekendDays: profile.settings.weekendDays,
+    timezone: profile.settings.timezone,
+  };
+}
 
 // Health check, unauthenticated, and deliberately so: it is what a deploy
 // pipeline reads back to confirm the deploy actually took effect. A deploy
@@ -84,10 +98,7 @@ app.use('*', requireAuth);
 app.get('/', async (c) => {
   const env = c.env;
   const profile = loadProfile(env.TENANT_PROFILE);
-  const terms = {
-    incrementMinutes: profile.settings.billingIncrementMinutes,
-    minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
-  };
+  const terms = termsFor(profile);
   const customers = await listCustomers(env);
   const customer = customers[0] ?? null;
   const tasks = customer ? await listTasks(env, customer.id) : [];
@@ -126,7 +137,7 @@ app.get('/', async (c) => {
     billableByTask.set(
       e.taskId,
       (billableByTask.get(e.taskId) ?? 0) +
-        billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms),
+        billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms, e.startedAt),
     );
   }
   const timeCents = taskViews.reduce(
@@ -226,10 +237,7 @@ app.post('/invoices', async (c) => {
       profile.settings.invoicePrefix,
       profile.settings.currency,
       profile.settings.mileageBillable,
-      {
-        incrementMinutes: profile.settings.billingIncrementMinutes,
-        minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
-      },
+      termsFor(profile),
     );
     return c.redirect(`/invoices/${invoice.id}`);
   } catch (e) {
@@ -252,10 +260,7 @@ app.get('/invoices/:id', async (c) => {
       customer,
       invoice,
       contents,
-      terms: {
-        incrementMinutes: profile.settings.billingIncrementMinutes,
-        minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
-      },
+      terms: termsFor(profile),
     }),
   );
 });

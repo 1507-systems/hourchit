@@ -8,9 +8,14 @@ import {
 } from '../src/domain/billing';
 
 /** Tarnsby's terms: 15 minute increments, one hour minimum call-out. */
-const T: BillingTerms = { incrementMinutes: 15, minimumCallOutMinutes: 60 };
+const T: BillingTerms = {
+  incrementMinutes: 15,
+  minimumCallOutMinutes: 60,
+  weekendDays: [0, 6],
+  timezone: 'America/New_York',
+};
 /** Increments only, no minimum. */
-const INC_ONLY: BillingTerms = { incrementMinutes: 15, minimumCallOutMinutes: 0 };
+const INC_ONLY: BillingTerms = { ...T, minimumCallOutMinutes: 0 };
 
 const MIN = 60;
 const HOUR = 3600;
@@ -52,12 +57,12 @@ describe('billableSeconds', () => {
   });
 
   it('rounds a minimum that is not a whole number of increments up to one', () => {
-    const odd: BillingTerms = { incrementMinutes: 15, minimumCallOutMinutes: 20 };
+    const odd: BillingTerms = { ...T, minimumCallOutMinutes: 20 };
     expect(billableSeconds(60, odd)).toBe(30 * MIN);
   });
 
   it('supports other increments, including tenths of an hour', () => {
-    const tenths: BillingTerms = { incrementMinutes: 6, minimumCallOutMinutes: 0 };
+    const tenths: BillingTerms = { ...T, incrementMinutes: 6, minimumCallOutMinutes: 0 };
     expect(billableSeconds(1, tenths)).toBe(6 * MIN);
     expect(billableSeconds(13 * MIN, tenths)).toBe(18 * MIN);
   });
@@ -68,16 +73,18 @@ describe('billableSecondsTotal', () => {
     // MSA 1.5: "each confirmed attendance is billable at the minimum". Three
     // separate twenty minute visits are three call-outs. Summing raw seconds
     // first and rounding once would bill one hour instead of three.
-    const three = [20 * MIN, 20 * MIN, 20 * MIN];
+    const three = [20 * MIN, 20 * MIN, 20 * MIN].map((seconds) => ({ seconds }));
     expect(billableSecondsTotal(three, T)).toBe(3 * HOUR);
   });
 
   it('does not let a zero-length entry earn a minimum', () => {
-    expect(billableSecondsTotal([0, 20 * MIN], T)).toBe(HOUR);
+    expect(billableSecondsTotal([{ seconds: 0 }, { seconds: 20 * MIN }], T)).toBe(HOUR);
   });
 
   it('sums independently rounded attendances', () => {
-    expect(billableSecondsTotal([16 * MIN, 16 * MIN], INC_ONLY)).toBe(60 * MIN);
+    expect(
+      billableSecondsTotal([{ seconds: 16 * MIN }, { seconds: 16 * MIN }], INC_ONLY),
+    ).toBe(60 * MIN);
   });
 });
 

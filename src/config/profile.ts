@@ -63,7 +63,19 @@ export interface ProfileSettings {
    * so that "no minimum" is a decision somebody made rather than a field nobody
    * filled in. Applied PER ATTENDANCE per MSA 1.5, not once per invoice.
    */
-  minimumCallOutMinutes: number;
+  minimumCallOutMinutes: number | { weekday: number; weekend: number };
+
+  /**
+   * IANA timezone the work happens in, e.g. "America/New_York". REQUIRED.
+   *
+   * Time entries are stored as UTC, but every rule that cares about "which day"
+   * means the LOCAL day. A Friday 20:00 job in Connecticut is 00:00 SATURDAY in
+   * UTC, so a weekend minimum resolved off UTC would bill a weekend rate for a
+   * Friday evening -- silently, and only on evening jobs, which for an A/V
+   * business is most of them. There is no safe default: UTC mis-bills every US
+   * tenant, and a Worker's own zone is wherever the request happened to land.
+   */
+  timezone: string;
 }
 
 export interface SeedCustomer {

@@ -327,7 +327,11 @@ export async function createInvoiceForCustomer(
     // Rounded PER ATTENDANCE before summing. MSA 1.5 makes the minimum apply to
     // each confirmed attendance, so three short visits are three minimums;
     // rounding the aggregate instead would bill for one.
-    agg.seconds += billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms);
+    agg.seconds += billableSeconds(
+      durationSeconds(e.startedAt, e.stoppedAt as string),
+      terms,
+      e.startedAt,
+    );
     perTask.set(e.taskId, agg);
   }
   const mileageItems: MileageItem[] = mileage.map((m) => ({

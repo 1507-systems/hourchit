@@ -17,6 +17,7 @@
     ],
     "invoicePrefix": "INV",
     "billingIncrementMinutes": 15,
-    "minimumCallOutMinutes": 0
+    "minimumCallOutMinutes": 0,
+    "timezone": "UTC"
   }
 }
