@@ -30,7 +30,10 @@ import {
   getTask,
   invoiceContents,
   invoiceLines,
+  createTermVersion,
+  latestInvoicedWorkAt,
   listAllCustomers,
+  listTermVersions,
   listAllRoutes,
   listAllTasks,
   setCustomerArchived,
@@ -53,6 +56,13 @@ import {
 import { renderDashboard, TaskView } from './ui/dashboard';
 import { renderMailList, renderThread } from './ui/mail';
 import { renderClient, renderClients } from './ui/clients';
+import { renderSettings } from './ui/settings';
+import {
+  conflictsWithInvoicedWork,
+  parseMinimumCallOut,
+  serializeMinimumCallOut,
+  termsForInstant,
+} from './domain/terms';
 import { getThread, listThreads, storeOutbound, threadMessages } from './inbox';
 import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
@@ -265,6 +275,100 @@ function tenantAddress(c: Context<{ Bindings: Env }>): string {
   const domain = c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app';
   return `${c.env.TENANT_PROFILE}@${domain}`;
 }
+
+// ---- Billing terms ---------------------------------------------------------
+
+app.get('/settings', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const versions = await listTermVersions(c.env);
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const inForce = termsForInstant(versions, now, {
+    weekendDays: profile.settings.weekendDays,
+    timezone: profile.settings.timezone,
+  });
+  const latest = versions.length > 0 ? versions[0] : null;
+
+  return c.html(
+    renderSettings(
+      {
+        business: profile.business.name,
+        versions,
+        // Fall back to the profile when no version exists yet, so the page shows
+        // what is genuinely in force rather than an empty state.
+        currentIncrement: inForce?.incrementMinutes ?? profile.settings.billingIncrementMinutes,
+        currentMinimum: latest
+          ? latest.minimum_callout
+          : serializeMinimumCallOut(profile.settings.minimumCallOutMinutes),
+        currentMileageCents: latest
+          ? latest.mileage_rate_cents
+          : profile.settings.mileageRateCentsPerMile,
+        currentMileageBillable: latest
+          ? latest.mileage_billable === 1
+          : profile.settings.mileageBillable,
+        latestInvoicedWorkAt: await latestInvoicedWorkAt(c.env),
+        fromProfileOnly: versions.length === 0,
+        timezone: profile.settings.timezone,
+      },
+      flashHtml(c),
+    ),
+  );
+});
+
+app.post('/settings/terms', async (c) => {
+  const b = await c.req.parseBody();
+  const raw = String(b.effectiveFrom ?? '').trim();
+  if (!raw) return c.redirect('/settings?err=' + encodeURIComponent('An effective date is required'));
+  // The datetime-local input gives "YYYY-MM-DDTHH:MM"; store it in the same
+  // shape SQLite's datetime() produces so string comparison orders correctly.
+  const effectiveFrom = raw.replace('T', ' ') + (raw.length === 16 ? ':00' : '');
+
+  // Refuse to restate a period that has already been billed. The invoice's own
+  // lines are frozen, but a stored invoice disagreeing with what the terms now
+  // say is exactly what cannot be explained later.
+  const guard = conflictsWithInvoicedWork(effectiveFrom, await latestInvoicedWorkAt(c.env));
+  if (guard.conflicts) {
+    return c.redirect(
+      '/settings?err=' +
+        encodeURIComponent(
+          `That date would restate work already invoiced up to ${guard.latestInvoicedWorkAt}. ` +
+            'Choose a later effective date.',
+        ),
+    );
+  }
+
+  const increment = Number(b.increment);
+  const mileageCents = Number(b.mileageCents);
+  if (!Number.isFinite(increment) || increment < 1 || !Number.isFinite(mileageCents) || mileageCents < 0) {
+    return c.redirect('/settings?err=' + encodeURIComponent('Increment and mileage rate must be numbers'));
+  }
+
+  const weekday = Number(b.minWeekday);
+  const weekend = Number(b.minWeekend);
+  const minimum =
+    String(b.minimumMode ?? 'flat') === 'split'
+      ? { weekday: Math.max(0, weekday || 0), weekend: Math.max(0, weekend || 0) }
+      : Math.max(0, weekday || 0);
+
+  try {
+    // Round-trip it before storing: a value that cannot be read back would make
+    // every later invoice fail rather than this form.
+    parseMinimumCallOut(serializeMinimumCallOut(minimum));
+  } catch (e) {
+    return c.redirect('/settings?err=' + encodeURIComponent((e as Error).message));
+  }
+
+  await createTermVersion(c.env, {
+    effectiveFrom,
+    billingIncrementMinutes: Math.round(increment),
+    minimumCallOut: serializeMinimumCallOut(minimum),
+    mileageRateCents: Math.round(mileageCents),
+    mileageBillable: String(b.mileageBillable ?? '') === '1',
+    recordedBy: 'operator',
+    note: String(b.note ?? ''),
+  });
+
+  return c.redirect('/settings?ok=' + encodeURIComponent('Terms recorded'));
+});
 
 // ---- Client management -----------------------------------------------------
 

@@ -52,7 +52,8 @@ export function layout(opts: { title: string; business: string; body: string }):
 <header>
   <span class="biz">${esc(opts.business)}</span>
   <nav><a href="/">Dashboard</a> &nbsp; <a href="/clients">Clients</a> &nbsp;
-    <a href="/mail">Mail</a> &nbsp; <a href="/logout">Sign out</a></nav>
+    <a href="/mail">Mail</a> &nbsp;
+    <a href="/settings">Terms</a> &nbsp; <a href="/logout">Sign out</a></nav>
 </header>
 <main>${opts.body}</main>
 </body></html>`;
