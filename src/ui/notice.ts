@@ -59,12 +59,41 @@ function describeMinimum(stored: string): string {
   }
 }
 
-function describeTerms(t: NoticeTerms): string[] {
+/** Each term as a label and its value, so two versions can be compared line by line. */
+function termLines(t: NoticeTerms): Array<{ label: string; value: string }> {
   return [
-    `Billing increment: ${t.incrementMinutes} minutes, rounded up`,
-    `Minimum call-out: ${describeMinimum(t.minimum)}`,
-    `Mileage: ${formatCents(t.mileageCents, 'USD')} per mile${t.mileageBillable ? '' : ' (recorded, not charged)'}`,
+    { label: 'Billing increment', value: `${t.incrementMinutes} minutes, rounded up` },
+    { label: 'Minimum call-out', value: describeMinimum(t.minimum) },
+    {
+      label: 'Mileage',
+      value: t.mileageBillable
+        ? `${formatCents(t.mileageCents, 'USD')} per mile`
+        : `${formatCents(t.mileageCents, 'USD')} per mile, recorded but not charged`,
+    },
   ];
+}
+
+function describeTerms(t: NoticeTerms): string[] {
+  return termLines(t).map((l) => `${l.label}: ${l.value}`);
+}
+
+/**
+ * Only the terms that actually change.
+ *
+ * A notice that restates every term with two of the three unchanged makes the
+ * reader hunt for the difference, and a client who cannot see what changed in
+ * ten seconds is a client who queries the first invoice that follows. The full
+ * terms still appear below; this is what the letter is ABOUT.
+ */
+function changedLines(
+  before: NoticeTerms | null,
+  after: NoticeTerms,
+): Array<{ label: string; from: string; to: string }> {
+  if (!before) return [];
+  const b = termLines(before);
+  return termLines(after)
+    .map((l, i) => ({ label: l.label, from: b[i].value, to: l.value }))
+    .filter((l) => l.from !== l.to);
 }
 
 /** The letter as plain text, for the clipboard and for a mail client. */
@@ -81,10 +110,19 @@ export function noticeText(v: NoticeView): string {
       `terms currently in force.`,
     '',
   );
-  if (v.before) {
-    lines.push('Current terms:', ...describeTerms(v.before).map((s) => `  - ${s}`), '');
+  const changed = changedLines(v.before, v.after);
+  if (changed.length > 0) {
+    lines.push(
+      'What is changing:',
+      ...changed.map((l) => `  - ${l.label}: ${l.from}  ->  ${l.to}`),
+      '',
+    );
   }
-  lines.push(`Terms from ${v.effectiveLabel}:`, ...describeTerms(v.after).map((s) => `  - ${s}`), '');
+  lines.push(
+    `The terms in full from ${v.effectiveLabel}:`,
+    ...describeTerms(v.after).map((s) => `  - ${s}`),
+    '',
+  );
   if (v.note.trim()) lines.push(v.note.trim(), '');
   lines.push(
     'Please contact us if you would like to discuss this.',
@@ -98,6 +136,7 @@ export function noticeText(v: NoticeView): string {
 
 export function renderNotice(v: NoticeView): string {
   const text = noticeText(v);
+  const changed = changedLines(v.before, v.after);
   const subject = `Notice of change to billing terms, effective ${v.effectiveLabel}`;
   const mailto = `mailto:${encodeURIComponent(v.recipient?.email ?? '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
 
@@ -182,8 +221,23 @@ export function renderNotice(v: NoticeView): string {
     <strong>${esc(v.effectiveLabel)}</strong>. Work performed before that date is unaffected and will be
     invoiced at the terms currently in force.</p>
 
-  ${v.before ? `<p><strong>Current terms</strong></p>${termsList(v.before)}` : ''}
-  <p><strong>Terms from ${esc(v.effectiveLabel)}</strong></p>
+  ${
+    changed.length > 0
+      ? `<p><strong>What is changing</strong></p>
+         <table><thead><tr><th></th><th>Currently</th><th>From ${esc(v.effectiveLabel)}</th></tr></thead><tbody>
+         ${changed
+           .map(
+             (l) =>
+               `<tr><td>${esc(l.label)}</td><td class="muted">${esc(l.from)}</td><td><strong>${esc(l.to)}</strong></td></tr>`,
+           )
+           .join('')}
+         </tbody></table>`
+      : v.before
+        ? '<p>The terms themselves are unchanged; this notice records the date they were restated.</p>'
+        : ''
+  }
+
+  <p><strong>The terms in full from ${esc(v.effectiveLabel)}</strong></p>
   ${termsList(v.after)}
 
   ${v.note.trim() ? `<p>${esc(v.note.trim())}</p>` : ''}
