@@ -5,6 +5,7 @@
 import type { Env } from './env';
 import { durationSeconds, TimeEntry } from './domain/time';
 import { buildInvoice, invoiceNumber, MileageItem, TaskTimeAggregate } from './domain/invoicing';
+import { billableSeconds, type BillingTerms } from './domain/billing';
 
 export interface Customer {
   id: number;
@@ -300,6 +301,12 @@ export async function createInvoiceForCustomer(
    * ProfileSettings.mileageBillable.
    */
   mileageBillable: boolean,
+  /**
+   * The tenant's billing increment and minimum call-out. Passed rather than
+   * defaulted for the same reason as mileageBillable: these decide what a client
+   * owes, and a default would let one tenant's terms apply to another's invoice.
+   */
+  terms: BillingTerms,
 ): Promise<Invoice> {
   const time = await unbilledTimeEntries(env, customerId);
   const mileage = await unbilledMileage(env, customerId);
@@ -317,7 +324,10 @@ export async function createInvoiceForCustomer(
       rateCentsPerHour: e.rateCentsPerHour,
       seconds: 0,
     };
-    agg.seconds += durationSeconds(e.startedAt, e.stoppedAt as string);
+    // Rounded PER ATTENDANCE before summing. MSA 1.5 makes the minimum apply to
+    // each confirmed attendance, so three short visits are three minimums;
+    // rounding the aggregate instead would bill for one.
+    agg.seconds += billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms);
     perTask.set(e.taskId, agg);
   }
   const mileageItems: MileageItem[] = mileage.map((m) => ({

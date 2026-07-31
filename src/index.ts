@@ -17,7 +17,8 @@ import { loadProfile } from './config/profiles';
 import { mileageRuleFromSettings } from './config/profile';
 import { classifyTrip, routeTableDistance } from './domain/mileage';
 import { durationSeconds } from './domain/time';
-import { mileageAmountCents, timeAmountCents } from './domain/money';
+import { amountCentsFor, billableSeconds } from './domain/billing';
+import { mileageAmountCents } from './domain/money';
 import {
   createInvoiceForCustomer,
   createMileage,
@@ -83,6 +84,10 @@ app.use('*', requireAuth);
 app.get('/', async (c) => {
   const env = c.env;
   const profile = loadProfile(env.TENANT_PROFILE);
+  const terms = {
+    incrementMinutes: profile.settings.billingIncrementMinutes,
+    minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
+  };
   const customers = await listCustomers(env);
   const customer = customers[0] ?? null;
   const tasks = customer ? await listTasks(env, customer.id) : [];
@@ -112,8 +117,20 @@ app.get('/', async (c) => {
   const mileage = customer ? await unbilledMileage(env, customer.id) : [];
   const recentMileage = customer ? await listRecentMileage(env, customer.id) : [];
 
+  // The MONEY is billable time; the H:MM shown per task stays actual elapsed.
+  // Those are different questions -- "how long was I there" and "what does that
+  // invoice as" -- and conflating them would either hide real hours worked or
+  // preview a total the invoice then disagrees with.
+  const billableByTask = new Map<number, number>();
+  for (const e of unbilledTime) {
+    billableByTask.set(
+      e.taskId,
+      (billableByTask.get(e.taskId) ?? 0) +
+        billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms),
+    );
+  }
   const timeCents = taskViews.reduce(
-    (acc, t) => acc + timeAmountCents(t.unbilledSeconds, t.rateCentsPerHour),
+    (acc, t) => acc + amountCentsFor(billableByTask.get(t.id) ?? 0, t.rateCentsPerHour),
     0,
   );
   const mileageCents = mileage.reduce(
@@ -209,6 +226,10 @@ app.post('/invoices', async (c) => {
       profile.settings.invoicePrefix,
       profile.settings.currency,
       profile.settings.mileageBillable,
+      {
+        incrementMinutes: profile.settings.billingIncrementMinutes,
+        minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
+      },
     );
     return c.redirect(`/invoices/${invoice.id}`);
   } catch (e) {
@@ -225,7 +246,18 @@ app.get('/invoices/:id', async (c) => {
   const customer = await getCustomer(env, invoice.customer_id);
   if (!customer) return c.notFound();
   const contents = await invoiceContents(env, id);
-  return c.html(renderInvoice({ business: profile.business, customer, invoice, contents }));
+  return c.html(
+    renderInvoice({
+      business: profile.business,
+      customer,
+      invoice,
+      contents,
+      terms: {
+        incrementMinutes: profile.settings.billingIncrementMinutes,
+        minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
+      },
+    }),
+  );
 });
 
 app.post('/invoices/:id/send', async (c) => {

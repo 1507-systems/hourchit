@@ -1,7 +1,7 @@
 import type { Customer, Invoice, InvoiceContents } from '../db';
 import type { ProfileBusiness } from '../config/profile';
 import { formatCents } from '../domain/money';
-import { decimalHours } from '../domain/time';
+import { amountCentsFor, billableHours, billableSeconds, type BillingTerms } from '../domain/billing';
 import { esc, nl2br } from './html';
 
 /** A clean, printable invoice. "Print to PDF" from the browser is the R1 output. */
@@ -10,14 +10,21 @@ export function renderInvoice(args: {
   customer: Customer;
   invoice: Invoice;
   contents: InvoiceContents;
+  /**
+   * The tenant's terms, so the displayed lines are computed the SAME way the
+   * stored totals were. They used to be computed twice from different inputs,
+   * which is how an invoice came to show a line of $0.03 above a total of
+   * $125.00 -- the totals had the minimum call-out applied and the line did not.
+   */
+  terms: BillingTerms;
 }): string {
-  const { business, customer, invoice, contents } = args;
+  const { business, customer, invoice, contents, terms } = args;
   const money = (c: number) => formatCents(c, invoice.currency);
 
-  const timeRows = groupTime(contents).map(
+  const timeRows = groupTime(contents, terms).map(
     (t) => `<tr>
       <td>${esc(t.name)}</td>
-      <td class="num">${decimalHours(t.seconds).toFixed(2)}</td>
+      <td class="num">${billableHours(t.seconds).toFixed(2)}</td>
       <td class="num">${money(t.rate)}/hr</td>
       <td class="num">${money(t.amount)}</td>
     </tr>`,
@@ -115,19 +122,23 @@ export function renderInvoice(args: {
 </body></html>`;
 }
 
-function groupTime(contents: InvoiceContents) {
+function groupTime(contents: InvoiceContents, terms: BillingTerms) {
   const map = new Map<number, { name: string; rate: number; seconds: number; amount: number }>();
   for (const e of contents.timeEntries) {
-    const secs = Math.max(
+    const raw = Math.max(
       0,
       Math.round((Date.parse(e.stoppedAt as string) - Date.parse(e.startedAt)) / 1000),
     );
     const g = map.get(e.taskId) ?? { name: e.taskName, rate: e.rateCentsPerHour, seconds: 0, amount: 0 };
-    g.seconds += secs;
+    // Rounded PER ATTENDANCE before summing, exactly as createInvoiceForCustomer
+    // does it, because the minimum applies to each confirmed attendance.
+    g.seconds += billableSeconds(raw, terms);
     map.set(e.taskId, g);
   }
   for (const g of map.values()) {
-    g.amount = Math.round((g.seconds / 3600) * g.rate);
+    // From the same seconds the quantity is rendered from, so the row always
+    // multiplies out.
+    g.amount = amountCentsFor(g.seconds, g.rate);
   }
   return [...map.values()];
 }

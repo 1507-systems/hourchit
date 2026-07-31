@@ -45,6 +45,25 @@ export interface ProfileSettings {
    * be able to extend on its own.
    */
   loginEmails?: string[];
+
+  /**
+   * Billing increment in MINUTES. Billable time rounds UP to a multiple of it.
+   *
+   * REQUIRED, and validated at load rather than defaulted. A default here would
+   * be a silent decision about what a client owes, and worse, it would let one
+   * tenant's terms leak into another's simply by being the fallback. Matt's A/V
+   * SOW 3.2 and the 1507 break-fix card both use 15.
+   */
+  billingIncrementMinutes: number;
+
+  /**
+   * Minimum billable MINUTES per confirmed attendance. 0 means no minimum.
+   *
+   * REQUIRED for the same reason, and it must be stated even when it is zero,
+   * so that "no minimum" is a decision somebody made rather than a field nobody
+   * filled in. Applied PER ATTENDANCE per MSA 1.5, not once per invoice.
+   */
+  minimumCallOutMinutes: number;
 }
 
 export interface SeedCustomer {
