@@ -4,7 +4,15 @@ import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
 // editor flags this as missing.
 import { CONFIG_SHA, GIT_SHA } from './build-info.generated';
-import { handleLogin, handleLogout, loginPage, requireAuth } from './auth';
+import {
+  handleLoginRequest,
+  handleLoginVerify,
+  handleLogout,
+  handleTokenLogin,
+  loginPage,
+  requireAuth,
+  tokenLoginPage,
+} from './auth';
 import { loadProfile } from './config/profiles';
 import { mileageRuleFromSettings } from './config/profile';
 import { classifyTrip, routeTableDistance } from './domain/mileage';
@@ -58,8 +66,15 @@ app.get('/health', (c) =>
 );
 
 // Auth endpoints (registered before the gate so they stay reachable).
+// Emailed one-time code: the ordinary way in.
 app.get('/login', (c) => loginPage(c));
-app.post('/login', (c) => handleLogin(c));
+app.post('/login', (c) => handleLoginRequest(c));
+app.post('/login/verify', (c) => handleLoginVerify(c));
+
+// Shared token: break-glass for when mail is unavailable.
+app.get('/login/token', (c) => tokenLoginPage(c));
+app.post('/login/token', (c) => handleTokenLogin(c));
+
 app.get('/logout', (c) => handleLogout(c));
 
 // Everything below requires the shared-secret cookie.
