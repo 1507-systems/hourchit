@@ -18,6 +18,7 @@
     "invoicePrefix": "EX",
     "billingIncrementMinutes": 15,
     "minimumCallOutMinutes": 60,
+    "termsNoticeDays": 30,
     "timezone": "America/New_York"
   },
   "seed": {

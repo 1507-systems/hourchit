@@ -40,6 +40,25 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .flash.ok{background:rgba(35,134,54,.15);border:1px solid var(--good)}
 .flash.err{background:rgba(158,106,3,.15);border:1px solid var(--warn)}
 a.btnlink{display:inline-block;text-decoration:none}
+
+/* Print, and therefore Save as PDF, which is how an invoice and a notice of
+   changed terms actually reach a client. Everything the reader cannot act on
+   from paper is application chrome: the nav, the buttons that produced the
+   page, anything marked .noprint. Leaving them in put a "Mark sent" button and
+   a "back to Dashboard" link on documents going to a paying customer.
+
+   Colours are forced light because the app's default is a dark theme and a
+   printer will happily render that as a solid black page. */
+@media print{
+  header,.noprint{display:none !important}
+  body{background:#fff;color:#000;line-height:1.45}
+  main{max-width:none;margin:0;padding:0}
+  .card{background:#fff;border:0;border-radius:0;margin:0 0 1rem;padding:0}
+  .muted{color:#444}
+  a{color:#000;text-decoration:none}
+  th,td{border-bottom:1px solid #bbb}
+  h1,h2{margin:.6rem 0 .4rem}
+}
 `;
 
 export function layout(opts: { title: string; business: string; body: string }): string {

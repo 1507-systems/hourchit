@@ -16,6 +16,7 @@
  * performed but not yet billed when the terms change.
  */
 import type { BillingTerms, MinimumCallOut } from './billing';
+import { localDateString, zonedWallTimeToUtc } from './localtime';
 
 export interface TermVersion {
   id: number;
@@ -133,6 +134,37 @@ export function taskRateForInstant(
 ): number {
   const v = versionAt(versionsNewestFirst, instant);
   return v ? v.rate_cents_per_hour : fallbackCents;
+}
+
+/**
+ * The soonest a change may take effect, given the notice the contract requires.
+ *
+ * NOTICE PERIOD PLUS ONE DAY, counted in local calendar days. The plus-one is
+ * not padding: a thirty day notice served today means the client is entitled to
+ * thirty FULL days before the change bites, and day thirty is still a day they
+ * are owed. Making it effective on day thirty gives twenty-nine and a bit.
+ *
+ * Returns midnight LOCAL on that date as a UTC instant, because a term boundary
+ * has to be comparable with the stored work instants. A zero-day notice period
+ * still yields tomorrow -- terms can never take effect today or in the past,
+ * whatever the contract says, since work already performed today would reprice
+ * mid-day.
+ *
+ * This is a floor the app enforces. It does NOT mean notice was given; nothing
+ * here can know that. See the notice letter the settings page produces.
+ */
+export function earliestEffectiveFrom(
+  nowIso: string,
+  noticeDays: number,
+  timeZone: string,
+): string {
+  const today = localDateString(nowIso, timeZone);
+  const [y, m, d] = today.split('-').map(Number);
+  // Calendar arithmetic in UTC space, then read back as plain Y-M-D. Adding
+  // days to a UTC midnight cannot drift, whereas adding 24h to a local instant
+  // lands an hour out across a DST boundary.
+  const shifted = new Date(Date.UTC(y, m - 1, d) + (Math.max(0, Math.floor(noticeDays)) + 1) * 86_400_000);
+  return zonedWallTimeToUtc(`${shifted.toISOString().slice(0, 10)}T00:00`, timeZone);
 }
 
 /**

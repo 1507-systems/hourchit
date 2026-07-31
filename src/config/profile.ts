@@ -66,6 +66,25 @@ export interface ProfileSettings {
   minimumCallOutMinutes: number | { weekday: number; weekend: number };
 
   /**
+   * Days of written notice the contract requires before terms may change.
+   *
+   * REQUIRED, and stated even when it is zero, for the same reason as the
+   * minimum call-out: "no notice period was agreed" is a decision, and a field
+   * nobody filled in is not. Matt's A/V MSA and most service agreements carry
+   * thirty; 30 is the value to reach for absent a specific term.
+   *
+   * The app uses it to refuse an effective date sooner than notice allows, so a
+   * rate change cannot be backdated into work already performed. It CANNOT know
+   * whether notice was actually served -- only that the date leaves room for it.
+   * That gap is why recording terms produces a notice letter to send.
+   *
+   * Tenant-wide rather than per-customer. Terms themselves are tenant-wide in
+   * this schema today; when a customer needs its own terms, its own notice
+   * period follows them there.
+   */
+  termsNoticeDays: number;
+
+  /**
    * IANA timezone the work happens in, e.g. "America/New_York". REQUIRED.
    *
    * Time entries are stored as UTC, but every rule that cares about "which day"

@@ -22,6 +22,15 @@ CREATE TABLE term_versions (
   -- was PERFORMED -- never against the moment an invoice was created. Resolving
   -- against invoice date is the obvious implementation and it is exactly
   -- backwards: it reprices past work every time a rate moves.
+  --
+  -- ISO-8601 UTC, the SAME SHAPE as time_entries.started_at, and that is not a
+  -- stylistic choice. Resolution compares these as strings, so a boundary
+  -- written "2026-09-01 18:00:00" against work written
+  -- "2026-09-01T09:00:00.000Z" sorts on the space-versus-T at position ten and
+  -- decides the version was already in force -- nine hours before it was. The
+  -- operator types local wall time and the app converts it through the tenant's
+  -- timezone, because "effective 1 September" means midnight where the business
+  -- operates, not midnight UTC.
   effective_from       TEXT NOT NULL,
 
   -- The full commercial terms, versioned together rather than field by field.
@@ -58,6 +67,7 @@ CREATE INDEX idx_term_versions_effective ON term_versions(effective_from DESC);
 CREATE TABLE task_rate_versions (
   id                   INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id              INTEGER NOT NULL REFERENCES tasks(id),
+  -- ISO-8601 UTC, as in term_versions above and for the same reason.
   effective_from       TEXT NOT NULL,
   rate_cents_per_hour  INTEGER NOT NULL,
   recorded_at          TEXT NOT NULL DEFAULT (datetime('now')),

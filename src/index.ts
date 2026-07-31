@@ -59,10 +59,15 @@ import { renderClient, renderClients } from './ui/clients';
 import { renderSettings } from './ui/settings';
 import {
   conflictsWithInvoicedWork,
+  earliestEffectiveFrom,
   parseMinimumCallOut,
   serializeMinimumCallOut,
-  termsForInstant,
+  versionAt,
 } from './domain/terms';
+import { parseDuration } from './domain/duration';
+import { localDateString, utcToZonedWallTime, zonedWallTimeToUtc } from './domain/localtime';
+import { renderNotice } from './ui/notice';
+import type { MinimumCallOut } from './domain/billing';
 import { getThread, listThreads, storeOutbound, threadMessages } from './inbox';
 import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
@@ -278,36 +283,104 @@ function tenantAddress(c: Context<{ Bindings: Env }>): string {
 
 // ---- Billing terms ---------------------------------------------------------
 
+/** A date written out for a person, in the tenant's own zone. */
+function longDate(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(Date.parse(iso)));
+}
+
+/**
+ * The soonest date the terms form will accept.
+ *
+ * Two floors, and the later one wins. The NOTICE floor comes from the contract:
+ * a change cannot bite before the client has had the notice they are owed. The
+ * INVOICED floor comes from the books: a date inside an already-billed period
+ * would make a stored invoice disagree with the terms that explain it. They are
+ * independent, and either can be the binding one.
+ */
+async function effectiveDateFloor(
+  c: { env: Env },
+  nowIso: string,
+  noticeDays: number,
+  timeZone: string,
+): Promise<{ floor: string; noticeFloor: string; invoicedUpTo: string | null }> {
+  const noticeFloor = earliestEffectiveFrom(nowIso, noticeDays, timeZone);
+  const invoicedUpTo = await latestInvoicedWorkAt(c.env);
+  // A minute past the last invoiced instant: conflictsWithInvoicedWork treats
+  // the boundary itself as a conflict, so the floor has to clear it.
+  const invoicedFloor = invoicedUpTo
+    ? new Date(Date.parse(invoicedUpTo) + 60_000).toISOString()
+    : null;
+  const floor = invoicedFloor && invoicedFloor > noticeFloor ? invoicedFloor : noticeFloor;
+  return { floor, noticeFloor, invoicedUpTo };
+}
+
 app.get('/settings', async (c) => {
   const profile = loadProfile(c.env.TENANT_PROFILE);
+  const tz = profile.settings.timezone;
   const versions = await listTermVersions(c.env);
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const inForce = termsForInstant(versions, now, {
-    weekendDays: profile.settings.weekendDays,
-    timezone: profile.settings.timezone,
-  });
-  const latest = versions.length > 0 ? versions[0] : null;
+  const nowIso = new Date().toISOString();
+
+  // Which day is the panel answering for? Terms resolve against the day work
+  // was PERFORMED, so the honest question is "what does a given day bill at",
+  // not "what is set right now" -- and past days are exactly the ones somebody
+  // queries when an old invoice is challenged.
+  const asked = c.req.query('asOf') ?? '';
+  const asOfDate = /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : localDateString(nowIso, tz);
+  const asOfInstant = zonedWallTimeToUtc(`${asOfDate}T00:00`, tz);
+
+  const v = versionAt(versions, asOfInstant);
+
+  // A version taking effect LATER on the selected day means the day has two
+  // answers. Saying so beats showing one of them as though it were the whole
+  // truth, which is how a half-day at the wrong rate gets defended.
+  const dayEnd = zonedWallTimeToUtc(
+    `${new Date(Date.parse(asOfInstant) + 86_400_000).toISOString().slice(0, 10)}T00:00`,
+    tz,
+  );
+  const later = versions
+    .filter((t) => t.effective_from > asOfInstant && t.effective_from < dayEnd)
+    .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0];
+
+  const { floor, invoicedUpTo } = await effectiveDateFloor(
+    c,
+    nowIso,
+    profile.settings.termsNoticeDays,
+    tz,
+  );
 
   return c.html(
     renderSettings(
       {
         business: profile.business.name,
-        versions,
-        // Fall back to the profile when no version exists yet, so the page shows
-        // what is genuinely in force rather than an empty state.
-        currentIncrement: inForce?.incrementMinutes ?? profile.settings.billingIncrementMinutes,
-        currentMinimum: latest
-          ? latest.minimum_callout
+        asOfDate,
+        asOfLabel: longDate(asOfInstant, tz),
+        asOfSource: v
+          ? `From the version effective ${longDate(v.effective_from, tz)}, recorded ${v.recorded_at.slice(0, 10)}.`
+          : 'From the tenant profile — no recorded version covers this date.',
+        changesLaterThatDay: later ? utcToZonedWallTime(later.effective_from, tz).slice(11) : null,
+
+        // Fall back to the profile when no version covers the date, so the page
+        // shows what is genuinely in force rather than an empty state.
+        increment: v ? v.billing_increment_minutes : profile.settings.billingIncrementMinutes,
+        minimum: v
+          ? v.minimum_callout
           : serializeMinimumCallOut(profile.settings.minimumCallOutMinutes),
-        currentMileageCents: latest
-          ? latest.mileage_rate_cents
-          : profile.settings.mileageRateCentsPerMile,
-        currentMileageBillable: latest
-          ? latest.mileage_billable === 1
-          : profile.settings.mileageBillable,
-        latestInvoicedWorkAt: await latestInvoicedWorkAt(c.env),
-        fromProfileOnly: versions.length === 0,
-        timezone: profile.settings.timezone,
+        mileageCents: v ? v.mileage_rate_cents : profile.settings.mileageRateCentsPerMile,
+        mileageBillable: v ? v.mileage_billable === 1 : profile.settings.mileageBillable,
+
+        versions,
+        inForceVersionId: v?.id ?? null,
+        latestInvoicedWorkAt: invoicedUpTo,
+        timezone: tz,
+        noticeDays: profile.settings.termsNoticeDays,
+        earliestEffectiveWall: utcToZonedWallTime(floor, tz),
+        earliestEffectiveLabel: longDate(floor, tz),
       },
       flashHtml(c),
     ),
@@ -315,12 +388,34 @@ app.get('/settings', async (c) => {
 });
 
 app.post('/settings/terms', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const tz = profile.settings.timezone;
+  const nowIso = new Date().toISOString();
   const b = await c.req.parseBody();
+
   const raw = String(b.effectiveFrom ?? '').trim();
   if (!raw) return c.redirect('/settings?err=' + encodeURIComponent('An effective date is required'));
-  // The datetime-local input gives "YYYY-MM-DDTHH:MM"; store it in the same
-  // shape SQLite's datetime() produces so string comparison orders correctly.
-  const effectiveFrom = raw.replace('T', ' ') + (raw.length === 16 ? ':00' : '');
+
+  // The input gives local wall time with no zone. Convert it to the UTC instant
+  // it names, because that is what every stored work instant is -- comparing a
+  // local string against an ISO instant sorts by accident rather than by time.
+  let effectiveFrom: string;
+  try {
+    effectiveFrom = zonedWallTimeToUtc(raw, tz);
+  } catch (e) {
+    return c.redirect('/settings?err=' + encodeURIComponent((e as Error).message));
+  }
+
+  const { noticeFloor } = await effectiveDateFloor(c, nowIso, profile.settings.termsNoticeDays, tz);
+  if (effectiveFrom < noticeFloor) {
+    return c.redirect(
+      '/settings?err=' +
+        encodeURIComponent(
+          `${profile.settings.termsNoticeDays} days' notice is required, so terms cannot take effect ` +
+            `before ${longDate(noticeFloor, tz)}.`,
+        ),
+    );
+  }
 
   // Refuse to restate a period that has already been billed. The invoice's own
   // lines are frozen, but a stored invoice disagreeing with what the terms now
@@ -330,8 +425,8 @@ app.post('/settings/terms', async (c) => {
     return c.redirect(
       '/settings?err=' +
         encodeURIComponent(
-          `That date would restate work already invoiced up to ${guard.latestInvoicedWorkAt}. ` +
-            'Choose a later effective date.',
+          `That date would restate work already invoiced up to ` +
+            `${longDate(guard.latestInvoicedWorkAt as string, tz)}. Choose a later effective date.`,
         ),
     );
   }
@@ -342,14 +437,18 @@ app.post('/settings/terms', async (c) => {
     return c.redirect('/settings?err=' + encodeURIComponent('Increment and mileage rate must be numbers'));
   }
 
-  const weekday = Number(b.minWeekday);
-  const weekend = Number(b.minWeekend);
-  const minimum =
-    String(b.minimumMode ?? 'flat') === 'split'
-      ? { weekday: Math.max(0, weekday || 0), weekend: Math.max(0, weekend || 0) }
-      : Math.max(0, weekday || 0);
-
+  // The dropdown decides which fields are read. Reading the pair when "same
+  // every day" is chosen -- or the single field when it is not -- is how a
+  // weekend minimum gets typed in and quietly discarded.
+  let minimum: MinimumCallOut;
   try {
+    minimum =
+      String(b.minimumMode ?? 'flat') === 'split'
+        ? {
+            weekday: parseDuration(String(b.minWeekday ?? '')),
+            weekend: parseDuration(String(b.minWeekend ?? '')),
+          }
+        : parseDuration(String(b.minFlat ?? ''));
     // Round-trip it before storing: a value that cannot be read back would make
     // every later invoice fail rather than this form.
     parseMinimumCallOut(serializeMinimumCallOut(minimum));
@@ -357,7 +456,7 @@ app.post('/settings/terms', async (c) => {
     return c.redirect('/settings?err=' + encodeURIComponent((e as Error).message));
   }
 
-  await createTermVersion(c.env, {
+  const id = await createTermVersion(c.env, {
     effectiveFrom,
     billingIncrementMinutes: Math.round(increment),
     minimumCallOut: serializeMinimumCallOut(minimum),
@@ -367,7 +466,81 @@ app.post('/settings/terms', async (c) => {
     note: String(b.note ?? ''),
   });
 
-  return c.redirect('/settings?ok=' + encodeURIComponent('Terms recorded'));
+  // Straight to the letter. Recording the version changes what HourChit will
+  // invoice; it does not tell the client anything, and the only thing standing
+  // between those two facts is somebody actually sending the notice.
+  return c.redirect(
+    `/settings/terms/${id}/notice?ok=` +
+      encodeURIComponent('Terms recorded. Now serve the notice — nothing has been sent yet.'),
+  );
+});
+
+/**
+ * The notice letter for a recorded version.
+ *
+ * "Before" is the version in force the instant BEFORE this one takes effect,
+ * which is what the client is currently being billed at -- not simply the
+ * previous row, since versions can be recorded out of order.
+ */
+app.get('/settings/terms/:id/notice', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
+  const tz = profile.settings.timezone;
+  const id = Number(c.req.param('id'));
+  const versions = await listTermVersions(c.env);
+  const version = versions.find((t) => t.id === id);
+  if (!version) return c.notFound();
+
+  const justBefore = new Date(Date.parse(version.effective_from) - 1).toISOString();
+  const prev = versionAt(
+    versions.filter((t) => t.id !== id),
+    justBefore,
+  );
+
+  const customers = await listCustomers(c.env);
+  const wanted = Number(c.req.query('customer'));
+  const recipient = customers.find((cu) => cu.id === wanted) ?? null;
+
+  const nowIso = new Date().toISOString();
+  const daysGiven = Math.floor(
+    (Date.parse(zonedWallTimeToUtc(`${localDateString(version.effective_from, tz)}T00:00`, tz)) -
+      Date.parse(zonedWallTimeToUtc(`${localDateString(nowIso, tz)}T00:00`, tz))) /
+      86_400_000,
+  );
+
+  return c.html(
+    renderNotice({
+      business: profile.business,
+      todayLabel: longDate(nowIso, tz),
+      effectiveLabel: longDate(version.effective_from, tz),
+      noticeDays: profile.settings.termsNoticeDays,
+      daysGiven,
+      before: prev
+        ? {
+            incrementMinutes: prev.billing_increment_minutes,
+            minimum: prev.minimum_callout,
+            mileageCents: prev.mileage_rate_cents,
+            mileageBillable: prev.mileage_billable === 1,
+          }
+        : {
+            incrementMinutes: profile.settings.billingIncrementMinutes,
+            minimum: serializeMinimumCallOut(profile.settings.minimumCallOutMinutes),
+            mileageCents: profile.settings.mileageRateCentsPerMile,
+            mileageBillable: profile.settings.mileageBillable,
+          },
+      after: {
+        incrementMinutes: version.billing_increment_minutes,
+        minimum: version.minimum_callout,
+        mileageCents: version.mileage_rate_cents,
+        mileageBillable: version.mileage_billable === 1,
+      },
+      note: version.note,
+      recipient: recipient
+        ? { id: recipient.id, name: recipient.name, address: recipient.address, email: recipient.email }
+        : null,
+      customers: customers.map((cu) => ({ id: cu.id, name: cu.name })),
+      versionId: version.id,
+    }),
+  );
 });
 
 // ---- Client management -----------------------------------------------------
