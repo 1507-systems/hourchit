@@ -114,3 +114,14 @@ describe('changed terms stay marked wherever they appear', () => {
     expect(noticeText(view({ before: null }))).not.toContain('(changed)');
   });
 });
+
+describe('the internal note stays internal', () => {
+  it('never puts the version note in the client letter', () => {
+    // The note field explicitly invites "when notice was served", so printing
+    // it would post the client a record of their own notice -- and any other
+    // internal remark alongside it.
+    const t = noticeText(view({ note: 'notice emailed and posted 2026-07-31; watch Grandvale AP' }));
+    expect(t).not.toContain('notice emailed');
+    expect(t).not.toContain('Grandvale AP');
+  });
+});

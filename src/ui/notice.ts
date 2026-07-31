@@ -125,7 +125,6 @@ export function noticeText(v: NoticeView): string {
     ),
     '',
   );
-  if (v.note.trim()) lines.push(v.note.trim(), '');
   lines.push(
     'Please contact us if you would like to discuss this.',
     '',
@@ -180,6 +179,13 @@ export function renderNotice(v: NoticeView): string {
       what counts as service; check yours before relying on email alone.</p>
     <p class="muted">HourChit does not send this for you. Nothing here records that notice was given —
       put the date you served it in the version's note so the two can be read together later.</p>
+    ${
+      v.note.trim()
+        ? `<p class="muted">The note on this version reads <em>${esc(v.note.trim())}</em>. It is INTERNAL and
+             is deliberately not in the letter: a note that doubles as a record of when notice was served
+             would otherwise be posted to the client, telling them about their own notice.</p>`
+        : ''
+    }
     ${
       short
         ? `<p class="flash err"><strong>This is short notice.</strong> The effective date is
@@ -251,8 +257,6 @@ export function renderNotice(v: NoticeView): string {
     changed.length > 0 ? ' <span class="muted">— changes in bold</span>' : ''
   }</p>
   ${termsList(v.after, true)}
-
-  ${v.note.trim() ? `<p>${esc(v.note.trim())}</p>` : ''}
 
   <p>Please contact us if you would like to discuss this.</p>
 

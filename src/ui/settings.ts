@@ -209,7 +209,7 @@ ${flash}
     <label><input type="checkbox" name="mileageBillable" value="1" ${v.mileageBillable ? 'checked' : ''}
              style="width:auto"> Client reimburses travel</label>
 
-    <label>Note — why these terms changed, and when notice was served
+    <label>Note — internal, and never shown to a client. Why these terms changed, and when notice was served
       <input name="note" placeholder="e.g. rate review agreed 2026-09; notice emailed and posted 2026-07-31"></label>
 
     <button type="submit">Record terms</button>
