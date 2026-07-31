@@ -295,6 +295,25 @@ function longDate(iso: string, timeZone: string): string {
 }
 
 /**
+ * As longDate, but keeping the time of day when there is one.
+ *
+ * The invoiced-work floor lands wherever the last billed job did, which is
+ * rarely midnight. Rounding it down to a bare date describes a floor the form
+ * does not actually have -- it reads as though the whole day were available
+ * while the input silently refuses the morning.
+ */
+function longMoment(iso: string, timeZone: string): string {
+  const wall = utcToZonedWallTime(iso, timeZone);
+  if (wall.endsWith('T00:00')) return longDate(iso, timeZone);
+  const time = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(Date.parse(iso)));
+  return `${longDate(iso, timeZone)} at ${time}`;
+}
+
+/**
  * The soonest date the terms form will accept.
  *
  * Two floors, and the later one wins. The NOTICE floor comes from the contract:
@@ -379,11 +398,11 @@ app.get('/settings', async (c) => {
         // operator set to 1 September, on exactly the tenants west of UTC.
         versions: versions.map((t) => ({ ...t, effectiveLabel: longDate(t.effective_from, tz) })),
         inForceVersionId: v?.id ?? null,
-        latestInvoicedLabel: invoicedUpTo ? longDate(invoicedUpTo, tz) : null,
+        latestInvoicedLabel: invoicedUpTo ? longMoment(invoicedUpTo, tz) : null,
         timezone: tz,
         noticeDays: profile.settings.termsNoticeDays,
         noticeFloorLabel: longDate(noticeFloor, tz),
-        acceptedFromLabel: longDate(floor, tz),
+        acceptedFromLabel: longMoment(floor, tz),
         acceptedFromWall: utcToZonedWallTime(floor, tz),
       },
       flashHtml(c),
