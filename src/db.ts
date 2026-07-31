@@ -280,6 +280,18 @@ export async function getInvoice(env: Env, id: number): Promise<Invoice | null> 
   return db(env).prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first<Invoice>();
 }
 
+export interface InvoiceLine {
+  id: number;
+  invoice_id: number;
+  kind: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  rate_cents: number;
+  amount_cents: number;
+  sort_order: number;
+}
+
 export interface InvoiceContents {
   timeEntries: Array<TimeEntry & { taskName: string; rateCentsPerHour: number }>;
   mileage: MileageRow[];
@@ -366,6 +378,20 @@ export async function createInvoiceForCustomer(
   const number = invoiceNumber(invoicePrefix, invoiceId);
   await db(env).prepare('UPDATE invoices SET number = ? WHERE id = ?').bind(number, invoiceId).run();
 
+  // Freeze the lines as issued. From here the invoice is a record, not a query:
+  // later changes to the increment, the minimum call-out or the tenant timezone
+  // must never restate a document somebody has already been sent.
+  const lineStmts = totals.lines.map((l, i) =>
+    db(env)
+      .prepare(
+        `INSERT INTO invoice_lines
+           (invoice_id, kind, description, quantity, unit, rate_cents, amount_cents, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(invoiceId, l.kind, l.description, l.quantity, l.unit, l.rateCents, l.amountCents, i),
+  );
+  if (lineStmts.length) await db(env).batch(lineStmts);
+
   // Attach the billed rows.
   const stmts: D1PreparedStatement[] = [];
   for (const e of time) {
@@ -383,6 +409,21 @@ export async function createInvoiceForCustomer(
   if (stmts.length) await db(env).batch(stmts);
 
   return (await getInvoice(env, invoiceId)) as Invoice;
+}
+
+/**
+ * The lines exactly as they were written when the invoice was issued.
+ *
+ * Returns an empty array for invoices created before line items were persisted;
+ * the caller falls back to recomputing those, which is the best that can be done
+ * for a document whose composition was never recorded.
+ */
+export async function invoiceLines(env: Env, invoiceId: number): Promise<InvoiceLine[]> {
+  const { results } = await db(env)
+    .prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY sort_order, id')
+    .bind(invoiceId)
+    .all<InvoiceLine>();
+  return results ?? [];
 }
 
 export async function invoiceContents(env: Env, invoiceId: number): Promise<InvoiceContents> {

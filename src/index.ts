@@ -26,6 +26,7 @@ import {
   getRoute,
   getTask,
   invoiceContents,
+  invoiceLines,
   listCustomers,
   listInvoices,
   listRecentMileage,
@@ -254,6 +255,7 @@ app.get('/invoices/:id', async (c) => {
   const customer = await getCustomer(env, invoice.customer_id);
   if (!customer) return c.notFound();
   const contents = await invoiceContents(env, id);
+  const lines = await invoiceLines(env, id);
   return c.html(
     renderInvoice({
       business: profile.business,
@@ -261,6 +263,7 @@ app.get('/invoices/:id', async (c) => {
       invoice,
       contents,
       terms: termsFor(profile),
+      lines,
     }),
   );
 });

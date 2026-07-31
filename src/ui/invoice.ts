@@ -1,4 +1,4 @@
-import type { Customer, Invoice, InvoiceContents } from '../db';
+import type { Customer, Invoice, InvoiceContents, InvoiceLine } from '../db';
 import type { ProfileBusiness } from '../config/profile';
 import { formatCents } from '../domain/money';
 import { amountCentsFor, billableHours, billableSeconds, type BillingTerms } from '../domain/billing';
@@ -11,17 +11,33 @@ export function renderInvoice(args: {
   invoice: Invoice;
   contents: InvoiceContents;
   /**
-   * The tenant's terms, so the displayed lines are computed the SAME way the
-   * stored totals were. They used to be computed twice from different inputs,
-   * which is how an invoice came to show a line of $0.03 above a total of
-   * $125.00 -- the totals had the minimum call-out applied and the line did not.
+   * The tenant's terms. Read ONLY when falling back for an invoice issued
+   * before line items were persisted; a stored invoice ignores them entirely,
+   * which is the whole point.
    */
   terms: BillingTerms;
+  /** The lines as issued. Empty for invoices predating persistence. */
+  lines: InvoiceLine[];
 }): string {
-  const { business, customer, invoice, contents, terms } = args;
+  const { business, customer, invoice, contents, terms, lines } = args;
   const money = (c: number) => formatCents(c, invoice.currency);
 
-  const timeRows = groupTime(contents, terms).map(
+  // A stored invoice renders from what it recorded. Recomputing would let a
+  // later change to the increment, the minimum call-out or the timezone restate
+  // a document that has already been sent and possibly paid.
+  const storedRows = lines.map(
+    (l) => `<tr>
+      <td>${esc(l.description)}</td>
+      <td class="num">${l.quantity.toFixed(2)}${l.unit === 'mi' ? ' mi' : ''}</td>
+      <td class="num">${money(l.rate_cents)}/${esc(l.unit)}</td>
+      <td class="num">${money(l.amount_cents)}</td>
+    </tr>`,
+  );
+
+  // Fallback for invoices issued before lines were persisted. Best available,
+  // but it IS a recomputation, so it can disagree with the stored totals if the
+  // terms have moved since.
+  const legacyTimeRows = groupTime(contents, terms).map(
     (t) => `<tr>
       <td>${esc(t.name)}</td>
       <td class="num">${billableHours(t.seconds).toFixed(2)}</td>
@@ -29,8 +45,7 @@ export function renderInvoice(args: {
       <td class="num">${money(t.amount)}</td>
     </tr>`,
   );
-
-  const mileageRows = contents.mileage.map(
+  const legacyMileageRows = contents.mileage.map(
     (m) => `<tr>
       <td>Mileage: ${esc(m.occurred_local.slice(0, 10))} <span class="muted">(${esc(m.reason)})</span></td>
       <td class="num">${m.miles} mi</td>
@@ -38,6 +53,9 @@ export function renderInvoice(args: {
       <td class="num">${money(Math.round((m.miles * m.rate_cents_per_mile)))}</td>
     </tr>`,
   );
+
+  const timeRows = lines.length > 0 ? storedRows : legacyTimeRows;
+  const mileageRows = lines.length > 0 ? [] : legacyMileageRows;
 
   const period =
     invoice.period_start && invoice.period_end
