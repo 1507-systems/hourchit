@@ -83,9 +83,15 @@ describe('sendMail', () => {
   });
 
   it('omits the headers key entirely for a fresh message', async () => {
-    const binding = { send: vi.fn(async () => ({ messageId: '<m@x>' })) };
+    const sent: Array<Record<string, unknown>> = [];
+    const binding = {
+      send: async (m: Record<string, unknown>) => {
+        sent.push(m);
+        return { messageId: '<m@x>' };
+      },
+    };
     await sendMail(binding, 'me@x.test', { to: 'you@y.test', subject: 's', text: 't' });
-    expect(binding.send.mock.calls[0][0]).not.toHaveProperty('headers');
+    expect(sent[0]).not.toHaveProperty('headers');
   });
 
   it('throws rather than silently dropping mail when unconfigured', async () => {
