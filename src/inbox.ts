@@ -4,6 +4,7 @@
  */
 import PostalMime, { type Email } from 'postal-mime';
 import type { Env } from './env';
+import { resolveBodyText } from './domain/htmltext';
 import {
   addressList,
   bareAddress,
@@ -122,13 +123,15 @@ export async function storeInbound(
     await env.MAIL_RAW.put(rawKey, opts.rawBytes);
   }
 
+  const body = resolveBodyText(email.text, email.html);
+
   const inserted = await db
     .prepare(
       `INSERT INTO messages
         (thread_id, direction, message_id, in_reply_to, references_raw,
-         from_addr, to_addrs, cc_addrs, subject, body_text, contact_id,
-         raw_r2_key, transport)
-       VALUES (?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         from_addr, to_addrs, cc_addrs, subject, body_text, body_html,
+         body_is_derived, contact_id, raw_r2_key, transport)
+       VALUES (?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id`,
     )
     .bind(
@@ -140,7 +143,12 @@ export async function storeInbound(
       JSON.stringify(addressList((email.to ?? []).map((t) => t.address).join(','))),
       JSON.stringify(addressList((email.cc ?? []).map((t) => t.address).join(','))),
       subject,
-      email.text ?? '',
+      // A phone reply is usually HTML and nothing else. Preferring text/plain
+      // but falling back to a rendering of the HTML is what keeps the body from
+      // being silently empty; body_is_derived records which one this was.
+      body.bodyText,
+      email.html ?? '',
+      body.derived ? 1 : 0,
       contactId,
       rawKey,
       opts.transport,
