@@ -34,6 +34,17 @@ export interface ProfileSettings {
    * trips never become invoice lines.
    */
   mileageBillable: boolean;
+
+  /**
+   * Extra addresses allowed to sign in, beyond `business.email`.
+   *
+   * Optional, and empty for a one-person business, which is the design target.
+   * It exists so a second operator can be added without a schema change, and it
+   * is an ALLOWLIST rather than a table: who may sign in to a client's billing
+   * application is a deployment decision, not something the running app should
+   * be able to extend on its own.
+   */
+  loginEmails?: string[];
 }
 
 export interface SeedCustomer {

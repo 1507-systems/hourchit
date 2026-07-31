@@ -2,6 +2,10 @@ import type { Context, Next } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env } from './env';
 import { esc } from './ui/html';
+import { loadProfile } from './config/profiles';
+import { generateCode, isAllowedLogin, normalizeEmail } from './domain/otp';
+import { isRateLimited, redeemCode, revokeSession, sessionEmail, storeCode } from './sessions';
+import { loginCodeMessage, sendMail } from './mail/send';
 
 const COOKIE = 'hourchit_session';
 
@@ -28,14 +32,34 @@ export function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Shared-secret gate. Good enough to keep a single-user tool off the open web;
- * a future round can swap in real accounts.
+ * The addresses allowed to receive a login code.
  *
- * This FAILS CLOSED. An earlier revision called `next()` when ACCESS_TOKEN was
- * unset, which meant a deploy that forgot `wrangler secret put` would serve a
- * real client's billing data to anyone who found the workers.dev URL. There is
- * no "open" mode: local development supplies ACCESS_TOKEN through `.dev.vars`
- * (see `.dev.vars.example`), exactly like production supplies it as a secret.
+ * Derived from the tenant profile rather than from a table, because the set of
+ * people who may sign in is a deployment decision, not something the app should
+ * be able to grow on its own. `business.email` is always included: the operator
+ * is whoever reads the business mailbox.
+ */
+export function allowedLoginEmails(env: Env): string[] {
+  const profile = loadProfile(env.TENANT_PROFILE);
+  const extra = profile.settings.loginEmails ?? [];
+  return [profile.business.email, ...extra].map(normalizeEmail);
+}
+
+/**
+ * Gate every real route.
+ *
+ * TWO ways in, in priority order:
+ *   1. A session cookie minted by redeeming an emailed code. This is the normal
+ *      path and the one the operator uses.
+ *   2. The static ACCESS_TOKEN, presented as the cookie value. BREAK-GLASS.
+ *      It stays because an auth system whose only path runs through a third
+ *      party's mail is one that locks you out of your own invoices the morning
+ *      that mail breaks -- which is also the morning you need to send one.
+ *
+ * FAILS CLOSED. With no ACCESS_TOKEN configured the app 503s rather than
+ * opening: an earlier revision called next() in that case, which meant a deploy
+ * that forgot `wrangler secret put` served a client's billing data to anyone who
+ * found the workers.dev URL.
  */
 export async function requireAuth(c: Ctx, next: Next): Promise<Response | void> {
   const token = c.env.ACCESS_TOKEN;
@@ -47,44 +71,181 @@ export async function requireAuth(c: Ctx, next: Next): Promise<Response | void> 
     );
   }
   const cookie = getCookie(c, COOKIE);
-  if (cookie && timingSafeEqual(cookie, token)) return next();
+  if (!cookie) return c.redirect('/login');
+
+  // Break-glass first: a constant-time string compare with no database round
+  // trip, so it cannot be told apart from a session miss by timing.
+  if (timingSafeEqual(cookie, token)) return next();
+
+  // A session lookup that throws (no DB binding, D1 unavailable) must deny
+  // rather than 500. An auth check is the one place where an unexpected error
+  // has to resolve to "not signed in", never to "assume the best".
+  try {
+    if (await sessionEmail(c.env, cookie, new Date())) return next();
+  } catch (e) {
+    console.error('session lookup failed, denying:', (e as Error).message);
+  }
+
   return c.redirect('/login');
 }
 
-export function loginPage(c: Ctx, error = ''): Response {
-  return c.html(`<!doctype html>
+// ---- Pages -----------------------------------------------------------------
+
+function page(title: string, body: string): string {
+  return `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · HourChit</title>
+<title>${esc(title)} · HourChit</title>
 <style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}
 input,button{font-size:1rem;padding:.6rem;width:100%;box-sizing:border-box;margin:.3rem 0}
 button{background:#1f6feb;color:#fff;border:0;border-radius:.4rem}
-.err{color:#c00}</style></head>
-<body><h1>HourChit</h1>
-${error ? `<p class="err">${esc(error)}</p>` : ''}
-<form method="post" action="/login">
-<label>Access token<input type="password" name="token" autofocus></label>
-<button type="submit">Sign in</button>
-</form></body></html>`);
+.err{color:#c00}.note{color:#555;font-size:.9rem}
+input[name=code]{font-size:1.6rem;letter-spacing:.4em;text-align:center;font-family:ui-monospace,monospace}</style>
+</head><body><h1>HourChit</h1>
+${body}
+</body></html>`;
 }
 
-export async function handleLogin(c: Ctx): Promise<Response> {
+/** Step one: ask which mailbox to send a code to. */
+export function loginPage(c: Ctx, error = '', prefill = ''): Response {
+  return c.html(
+    page(
+      'Sign in',
+      `${error ? `<p class="err">${esc(error)}</p>` : ''}
+<form method="post" action="/login">
+<label>Email address<input type="email" name="email" autofocus required value="${esc(prefill)}"></label>
+<button type="submit">Email me a code</button>
+</form>`,
+    ),
+  );
+}
+
+/** Step two: enter the six digits. */
+export function codePage(c: Ctx, email: string, error = ''): Response {
+  return c.html(
+    page(
+      'Enter your code',
+      `${error ? `<p class="err">${esc(error)}</p>` : ''}
+<p class="note">If <strong>${esc(email)}</strong> can sign in, a six digit code is on its way.
+It expires in 10 minutes.</p>
+<form method="post" action="/login/verify">
+<input type="hidden" name="email" value="${esc(email)}">
+<label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code"
+ pattern="[0-9]{6}" maxlength="6" autofocus required></label>
+<button type="submit">Sign in</button>
+</form>
+<p class="note"><a href="/login">Use a different address</a></p>`,
+    ),
+  );
+}
+
+// ---- Handlers --------------------------------------------------------------
+
+/**
+ * Request a code.
+ *
+ * ALWAYS renders the same next screen, whether or not the address is allowed
+ * and whether or not it was rate limited. Telling an anonymous visitor "that
+ * address cannot sign in" hands them a way to test addresses one at a time, and
+ * telling them "slow down" confirms the address is real.
+ */
+export async function handleLoginRequest(c: Ctx): Promise<Response> {
+  const body = await c.req.parseBody();
+  const raw = String(body.email ?? '');
+  const email = normalizeEmail(raw);
+  if (!email.includes('@')) return loginPage(c, 'Enter an email address.', raw);
+
+  const now = new Date();
+  if (isAllowedLogin(email, allowedLoginEmails(c.env)) && !(await isRateLimited(c.env, email, now))) {
+    const code = generateCode();
+    await storeCode(c.env, email, code, now);
+    const profile = loadProfile(c.env.TENANT_PROFILE);
+    try {
+      await sendMail(
+        c.env.EMAIL,
+        c.env.LOGIN_MAIL_FROM,
+        loginCodeMessage(email, code, profile.business.name),
+      );
+    } catch (e) {
+      // The code is already stored, so failing loudly here would be worse than
+      // useless: it would tell an anonymous visitor that this address is real.
+      // Log it and show the same screen. The operator sees no code arrive and
+      // can fall back to the break-glass token.
+      console.error('login code send failed:', (e as Error).message);
+    }
+  }
+
+  return codePage(c, email);
+}
+
+/** Redeem a code and start a session. */
+export async function handleLoginVerify(c: Ctx): Promise<Response> {
+  const body = await c.req.parseBody();
+  const email = normalizeEmail(String(body.email ?? ''));
+  const submitted = String(body.code ?? '');
+  const result = await redeemCode(c.env, email, submitted, new Date());
+
+  if (!result.ok) {
+    const message =
+      result.reason === 'too-many-attempts'
+        ? 'Too many incorrect attempts. Request a new code.'
+        : result.reason === 'expired'
+          ? 'That code has expired. Request a new one.'
+          : result.reason === 'consumed' || result.reason === 'no-code'
+            ? 'That code has already been used. Request a new one.'
+            : 'Incorrect code.';
+    return codePage(c, email, message);
+  }
+
+  setSessionCookie(c, result.sessionToken);
+  return c.redirect('/');
+}
+
+/**
+ * The shared-token form, kept working for break-glass.
+ *
+ * Reachable at /login/token rather than /login, so the emailed-code flow is the
+ * one anybody lands on.
+ */
+export function tokenLoginPage(c: Ctx, error = ''): Response {
+  return c.html(
+    page(
+      'Break-glass sign in',
+      `${error ? `<p class="err">${esc(error)}</p>` : ''}
+<p class="note">For use when email is unavailable. The ordinary way in is
+<a href="/login">a code sent to your email</a>.</p>
+<form method="post" action="/login/token">
+<label>Access token<input type="password" name="token" autofocus></label>
+<button type="submit">Sign in</button>
+</form>`,
+    ),
+  );
+}
+
+export async function handleTokenLogin(c: Ctx): Promise<Response> {
   const body = await c.req.parseBody();
   const token = String(body.token ?? '');
   if (c.env.ACCESS_TOKEN && timingSafeEqual(token, c.env.ACCESS_TOKEN)) {
-    setCookie(c, COOKIE, token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'Lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 30,
-    });
+    setSessionCookie(c, token);
     return c.redirect('/');
   }
-  return loginPage(c, 'Incorrect token.');
+  return tokenLoginPage(c, 'Incorrect token.');
 }
 
-export function handleLogout(c: Ctx): Response {
+export async function handleLogout(c: Ctx): Promise<Response> {
+  const cookie = getCookie(c, COOKIE);
+  // Revoke the row too, so the cookie is dead even if it was copied elsewhere.
+  if (cookie) await revokeSession(c.env, cookie, new Date());
   deleteCookie(c, COOKIE, { path: '/' });
   return c.redirect('/login');
+}
+
+function setSessionCookie(c: Ctx, value: string): void {
+  setCookie(c, COOKIE, value, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 30,
+  });
 }
