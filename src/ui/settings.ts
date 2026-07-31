@@ -66,6 +66,16 @@ export interface SettingsView {
   acceptedFromLabel: string;
   /** "YYYY-MM-DDTHH:MM" local form of that, for the input's min and default. */
   acceptedFromWall: string;
+
+  /**
+   * The floor for an AGREED change, which owes no notice.
+   *
+   * Empty when nothing constrains it: an agreement can legitimately be dated to
+   * the day the parties reached it, which may be in the past. Only work that
+   * has already been invoiced puts a floor under it.
+   */
+  agreedFloorWall: string;
+  agreedFloorLabel: string;
 }
 
 /** Read a stored minimum for display, tolerating a value we cannot parse. */
@@ -105,7 +115,9 @@ export function renderSettings(v: SettingsView, flash = ''): string {
         .map(
           (t) => `<tr>
       <td>${esc(t.effectiveLabel)}
-        ${t.id === v.inForceVersionId ? '<span class="tag">in force</span>' : ''}</td>
+        ${t.id === v.inForceVersionId ? '<span class="tag">in force</span>' : ''}
+        <br><span class="tag">${t.basis === 'agreement' ? 'agreed' : 'noticed'}</span>
+        ${t.basis === 'agreement' && t.agreed_with ? `<span class="muted">${esc(t.agreed_with)}</span>` : ''}</td>
       <td class="num">${t.billing_increment_minutes} min</td>
       <td>${describeMinimum(t.minimum_callout)}</td>
       <td class="num">${formatCents(t.mileage_rate_cents, 'USD')}/mi${t.mileage_billable ? '' : ' <span class="tag">not billed</span>'}</td>
@@ -158,6 +170,7 @@ ${flash}
   <p class="muted">This adds a version rather than editing the current one. Work performed before the
     effective date keeps billing at the older terms — that is what makes an old invoice explainable.</p>
 
+  <div id="basis-notice">
   ${
     v.noticeUnstated.length > 0
       ? `<p class="flash err"><strong>Set a notice period for
@@ -181,10 +194,35 @@ ${flash}
   }
 
   ${guard}
+  </div>
 
   <form method="post" action="/settings/terms">
+    <label>How this change takes effect
+      <select name="basis" id="basis">
+        <option value="notice">Standard rate update — the client is given notice</option>
+        <option value="agreement">Agreed with the client — no notice period</option>
+      </select></label>
+
+    <div id="agreed-with">
+      <label>Agreed with — who assented, and when
+        <input name="agreedWith" placeholder="e.g. Tessa Henderson, University of Bridgeport, by email 2026-07-28"></label>
+      <p class="muted" style="font-size:.85rem">An agreed change takes effect because a counterparty
+        assented, so a record that cannot say who did is not evidence of anything. It may be dated to the
+        day agreement was reached, including a past date — work in that window that has not yet been
+        invoiced will reprice.${
+          v.agreedFloorLabel
+            ? ` Nothing before <strong>${esc(v.agreedFloorLabel)}</strong>, which is already billed.`
+            : ''
+        }</p>
+      <p class="flash err" style="font-size:.85rem">These terms are shared by every client, so an agreed
+        change applies to all of them. If only one client agreed, recording it here charges the others a
+        rate they did not — that is the signal terms need to become per-client, not something to work
+        around.</p>
+    </div>
+
     <label>Effective from — the first moment work bills at these terms
-      <input type="datetime-local" name="effectiveFrom" required
+      <input type="datetime-local" name="effectiveFrom" id="effectiveFrom" required
+             data-notice-min="${esc(v.acceptedFromWall)}" data-agreed-min="${esc(v.agreedFloorWall)}"
              min="${esc(v.acceptedFromWall)}" value="${esc(v.acceptedFromWall)}"></label>
 
     <label>Billing increment, minutes — billable time rounds up to a multiple of this
@@ -245,6 +283,32 @@ ${flash}
 // The required flag moves with visibility because a hidden required field makes the
 // browser refuse to submit while having nothing focusable to complain about --
 // the form simply stops working with no message at all.
+(function () {
+  // The basis is not a label on the change -- it decides which rule bounds it.
+  // A change the client already agreed to owes no notice, so the notice floor
+  // and the whole notice explanation are wrong for it, and leaving them on
+  // screen would have the operator reading a constraint that does not apply.
+  var basis = document.getElementById('basis');
+  var agreed = document.getElementById('agreed-with');
+  var noticeBlock = document.getElementById('basis-notice');
+  var eff = document.getElementById('effectiveFrom');
+  if (basis && agreed && noticeBlock && eff) {
+    var applyBasis = function () {
+      var isAgreement = basis.value === 'agreement';
+      agreed.hidden = !isAgreement;
+      noticeBlock.hidden = isAgreement;
+      agreed.querySelectorAll('input').forEach(function (i) { i.required = isAgreement; });
+      var min = isAgreement ? eff.dataset.agreedMin : eff.dataset.noticeMin;
+      if (min) { eff.min = min; } else { eff.removeAttribute('min'); }
+      // Only drag the value forward when it now breaks the floor. Clobbering a
+      // date the operator deliberately chose is worse than leaving it.
+      if (min && eff.value && eff.value < min) { eff.value = min; }
+    };
+    basis.addEventListener('change', applyBasis);
+    applyBasis();
+  }
+})();
+
 (function () {
   var mode = document.getElementById('minimumMode');
   var flat = document.getElementById('min-flat');

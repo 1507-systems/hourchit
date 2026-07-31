@@ -16,6 +16,8 @@ function view(over: Partial<NoticeView> = {}): NoticeView {
       email: 'tarnsby@bpsmail.net',
       phone: '(203) 555-0142',
     },
+    basis: 'notice',
+    agreedWith: '',
     todayLabel: 'Friday, July 31, 2026',
     effectiveLabel: 'Tuesday, September 1, 2026',
     noticeDays: 30,
@@ -123,5 +125,37 @@ describe('the internal note stays internal', () => {
     const t = noticeText(view({ note: 'notice emailed and posted 2026-07-31; watch Grandvale AP' }));
     expect(t).not.toContain('notice emailed');
     expect(t).not.toContain('Grandvale AP');
+  });
+});
+
+describe('a notice and a confirmation are different documents', () => {
+  it('a noticed change TELLS the client', () => {
+    const t = noticeText(view({ basis: 'notice', agreedWith: '' }));
+    expect(t).toContain('NOTICE OF CHANGE TO BILLING TERMS');
+    expect(t).toContain('This is written notice');
+  });
+
+  it('an agreed change RECORDS what they already assented to', () => {
+    // Sending a notice for an agreed change invites "we already discussed this
+    // and I agreed" -- true, and it makes the operator look like they were not
+    // listening. It is also the wrong instrument: MSA 3.3 makes an agreed
+    // adjustment effective "upon written agreement", so this IS the writing.
+    const t = noticeText(view({ basis: 'agreement', agreedWith: 'Tessa Henderson, by email 2026-07-28' }));
+    expect(t).toContain('CONFIRMATION OF AGREED CHANGE TO BILLING TERMS');
+    expect(t).toContain('that we agreed (Tessa Henderson, by email 2026-07-28)');
+    expect(t).not.toContain('This is written notice');
+  });
+
+  it('names the counterparty, because that is what makes it evidence', () => {
+    const t = noticeText(view({ basis: 'agreement', agreedWith: 'Tessa Henderson' }));
+    expect(t).toContain('Tessa Henderson');
+  });
+
+  it('still states the change and the terms in full either way', () => {
+    for (const basis of ['notice', 'agreement'] as const) {
+      const t = noticeText(view({ basis, agreedWith: 'Tessa Henderson' }));
+      expect(t).toContain('What is changing:');
+      expect(t).toContain('The terms in full');
+    }
   });
 });

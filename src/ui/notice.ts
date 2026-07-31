@@ -30,6 +30,20 @@ export interface NoticeTerms {
 
 export interface NoticeView {
   business: { name: string; address: string; email: string; phone: string };
+  /**
+   * Which document this is, and it is not cosmetic.
+   *
+   * A NOTICE tells a client something is going to happen to them; its job is to
+   * start a clock, and it is worthless unless it can be shown to have been
+   * served. A CONFIRMATION records something they already agreed to; its job is
+   * to be the writing that MSA 3.3 requires the agreement to exist in. Sending
+   * a notice for an agreed change invites the reply "we already discussed this
+   * and I agreed" -- true, and it makes the paperwork look like the operator
+   * was not listening.
+   */
+  basis: 'notice' | 'agreement';
+  /** Who assented, for a confirmation. Empty for a notice. */
+  agreedWith: string;
   /** Today, written out, as the date the letter is served. */
   todayLabel: string;
   /** The date the change bites, written out. */
@@ -99,13 +113,23 @@ export function noticeText(v: NoticeView): string {
   if (v.recipient) {
     lines.push(v.recipient.name, ...v.recipient.address.split('\n'), '');
   }
-  lines.push('NOTICE OF CHANGE TO BILLING TERMS', '');
-  lines.push(
-    `This is written notice that the billing terms of our agreement will change with effect from ` +
-      `${v.effectiveLabel}. Work performed before that date is unaffected and will be invoiced at the ` +
-      `terms currently in force.`,
-    '',
-  );
+  if (v.basis === 'agreement') {
+    lines.push('CONFIRMATION OF AGREED CHANGE TO BILLING TERMS', '');
+    lines.push(
+      `This confirms in writing the change to the billing terms of our agreement that we agreed ` +
+        `(${v.agreedWith}), taking effect from ${v.effectiveLabel}. Work performed before that date is ` +
+        `unaffected and will be invoiced at the terms previously in force.`,
+      '',
+    );
+  } else {
+    lines.push('NOTICE OF CHANGE TO BILLING TERMS', '');
+    lines.push(
+      `This is written notice that the billing terms of our agreement will change with effect from ` +
+        `${v.effectiveLabel}. Work performed before that date is unaffected and will be invoiced at the ` +
+        `terms currently in force.`,
+      '',
+    );
+  }
   const changed = changedLines(v.before, v.after);
   if (changed.length > 0) {
     lines.push(
@@ -126,7 +150,9 @@ export function noticeText(v: NoticeView): string {
     '',
   );
   lines.push(
-    'Please contact us if you would like to discuss this.',
+    v.basis === 'agreement'
+      ? 'Please let us know if anything above does not match your understanding.'
+      : 'Please contact us if you would like to discuss this.',
     '',
     v.business.name,
     v.business.email,
@@ -138,7 +164,10 @@ export function noticeText(v: NoticeView): string {
 export function renderNotice(v: NoticeView): string {
   const text = noticeText(v);
   const changed = changedLines(v.before, v.after);
-  const subject = `Notice of change to billing terms, effective ${v.effectiveLabel}`;
+  const subject =
+    v.basis === 'agreement'
+      ? `Confirmation of agreed change to billing terms, effective ${v.effectiveLabel}`
+      : `Notice of change to billing terms, effective ${v.effectiveLabel}`;
   const mailto = `mailto:${encodeURIComponent(v.recipient?.email ?? '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
 
   const short = v.daysGiven < v.noticeDays;
@@ -164,19 +193,28 @@ export function renderNotice(v: NoticeView): string {
       .join('')}</ul>`;
 
   return layout({
-    title: 'Notice of changed terms',
+    title: v.basis === 'agreement' ? 'Confirmation of agreed terms' : 'Notice of changed terms',
     business: v.business.name,
     body: `<div class="noprint">
-  <h1>Notice of changed terms</h1>
+  <h1>${v.basis === 'agreement' ? 'Confirmation of agreed terms' : 'Notice of changed terms'}</h1>
 
   <div class="card">
-    <h2>How to serve this</h2>
-    <p class="muted">Send it <strong>by email and by post</strong>, not one or the other. Email is what the
+    <h2>${v.basis === 'agreement' ? 'How to send this' : 'How to serve this'}</h2>
+    ${
+      v.basis === 'agreement'
+        ? `<p class="muted">Email is enough, and email is the point: MSA section 3.3 makes an agreed fee
+             adjustment effective "upon written agreement of both parties", so the writing is not a
+             courtesy, it is what makes the change effective. Send it to the person who agreed and
+             <strong>keep their reply</strong> — a confirmation nobody answered is weaker evidence of
+             agreement than the thread it was meant to close. Post a copy too if the amount is
+             significant or the relationship is new.</p>`
+        : `<p class="muted">Send it <strong>by email and by post</strong>, not one or the other. Email is what the
       client will actually read; the posted copy is what survives a dispute, because a mail server log is the
       operator's own record and an email that was never opened is easy to deny. If the change is likely to be
       argued about — a rate rise, a new minimum — post it <strong>certified with return receipt</strong>, and
       keep the receipt with the signed agreement. Most contracts that specify a notice period also specify
-      what counts as service; check yours before relying on email alone.</p>
+      what counts as service; check yours before relying on email alone.</p>`
+    }
     <p class="muted">HourChit does not send this for you. Nothing here records that notice was given —
       put the date you served it in the version's note so the two can be read together later.</p>
     ${
@@ -187,7 +225,10 @@ export function renderNotice(v: NoticeView): string {
         : ''
     }
     ${
-      short
+      v.basis === 'agreement'
+        ? `<p class="muted">No notice period applies — the client agreed to this
+             (${esc(v.agreedWith)}), so there is nothing to give notice of.</p>`
+        : short
         ? `<p class="flash err"><strong>This is short notice.</strong> The effective date is
              ${v.daysGiven} day${v.daysGiven === 1 ? '' : 's'} away and the contract requires ${v.noticeDays}.
              Serving it now does not make it valid; move the effective date instead.</p>`
@@ -231,11 +272,18 @@ export function renderNotice(v: NoticeView): string {
       : '<p class="muted noprint">Not addressed to anyone yet — choose a recipient above.</p>'
   }
 
-  <h2>Notice of change to billing terms</h2>
+  <h2>${v.basis === 'agreement' ? 'Confirmation of agreed change to billing terms' : 'Notice of change to billing terms'}</h2>
 
-  <p>This is written notice that the billing terms of our agreement will change with effect from
-    <strong>${esc(v.effectiveLabel)}</strong>. Work performed before that date is unaffected and will be
-    invoiced at the terms currently in force.</p>
+  ${
+    v.basis === 'agreement'
+      ? `<p>This confirms in writing the change to the billing terms of our agreement that we agreed
+           (${esc(v.agreedWith)}), taking effect from <strong>${esc(v.effectiveLabel)}</strong>. Work
+           performed before that date is unaffected and will be invoiced at the terms previously in
+           force.</p>`
+      : `<p>This is written notice that the billing terms of our agreement will change with effect from
+           <strong>${esc(v.effectiveLabel)}</strong>. Work performed before that date is unaffected and will
+           be invoiced at the terms currently in force.</p>`
+  }
 
   ${
     changed.length > 0
@@ -258,7 +306,11 @@ export function renderNotice(v: NoticeView): string {
   }</p>
   ${termsList(v.after, true)}
 
-  <p>Please contact us if you would like to discuss this.</p>
+  <p>${
+    v.basis === 'agreement'
+      ? 'Please let us know if anything above does not match your understanding.'
+      : 'Please contact us if you would like to discuss this.'
+  }</p>
 
   <p>${esc(v.business.name)}<br>${esc(v.business.email)}<br>${esc(v.business.phone)}</p>
 </div>

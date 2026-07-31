@@ -613,6 +613,8 @@ export async function createTermVersion(
   env: Env,
   v: {
     effectiveFrom: string;
+    basis: string;
+    agreedWith: string;
     billingIncrementMinutes: number;
     minimumCallOut: string;
     mileageRateCents: number;
@@ -624,12 +626,14 @@ export async function createTermVersion(
   const r = await db(env)
     .prepare(
       `INSERT INTO term_versions
-         (effective_from, billing_increment_minutes, minimum_callout,
+         (effective_from, basis, agreed_with, billing_increment_minutes, minimum_callout,
           mileage_rate_cents, mileage_billable, recorded_by, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       v.effectiveFrom,
+      v.basis,
+      v.agreedWith,
       v.billingIncrementMinutes,
       v.minimumCallOut,
       v.mileageRateCents,

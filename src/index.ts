@@ -61,6 +61,7 @@ import {
   conflictsWithInvoicedWork,
   earliestEffectiveFrom,
   noticeDaysForTenantChange,
+  parseTermBasis,
   parseMinimumCallOut,
   serializeMinimumCallOut,
   versionAt,
@@ -94,10 +95,42 @@ function termsFor(profile: TenantProfile): BillingTerms {
 // that silently no-ops is otherwise indistinguishable from a successful one.
 // It reports only the build identity and which tenant is configured, never
 // the profile contents, which are the client's business.
-app.get('/health', (c) =>
+/**
+ * The newest migration this database has actually applied.
+ *
+ * READ THROUGH THE WORKER, deliberately, because the Worker has a D1 binding
+ * and the deploy pipeline does not: the API token Cloudflare Workers Builds
+ * issues itself carries no D1 permission, so nothing in CI can ask D1 anything.
+ * The Worker can, and it is already being asked whether the deploy took effect.
+ *
+ * This closes a hole that a green deploy could not see. On 2026-07-31 migration
+ * 0009's code shipped, /health reported the right commit, every signal said
+ * success -- and the column did not exist, so a validation rule silently did
+ * not fire. A matching git SHA proves the CODE is live. It says nothing about
+ * whether the SCHEMA that code assumes is there.
+ *
+ * `d1_migrations` is wrangler's own tracking table. Null means no migration has
+ * ever been applied, or D1 is unreachable; the verifier treats either as a
+ * mismatch rather than guessing.
+ */
+async function appliedSchema(env: Env): Promise<string | null> {
+  try {
+    const row = await env.DB.prepare(
+      'SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1',
+    ).first<{ name: string }>();
+    return row?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+app.get('/health', async (c) =>
   c.json({
     status: 'ok',
     tenant: c.env.TENANT_PROFILE,
+    // The newest applied migration, so a deploy can verify the SCHEMA moved and
+    // not merely the code. A public filename from a public repo; no client data.
+    schema: await appliedSchema(c.env),
     // The core commit that is running. A drift check compares this against
     // this repository's main; it is the application code, not the config.
     version: GIT_SHA,
@@ -330,6 +363,7 @@ async function effectiveDateFloor(
 ): Promise<{
   floor: string;
   noticeFloor: string;
+  invoicedFloor: string | null;
   invoicedUpTo: string | null;
   notice: ReturnType<typeof noticeDaysForTenantChange>;
 }> {
@@ -345,7 +379,7 @@ async function effectiveDateFloor(
     ? new Date(Date.parse(invoicedUpTo) + 60_000).toISOString()
     : null;
   const floor = invoicedFloor && invoicedFloor > noticeFloor ? invoicedFloor : noticeFloor;
-  return { floor, noticeFloor, invoicedUpTo, notice };
+  return { floor, noticeFloor, invoicedFloor, invoicedUpTo, notice };
 }
 
 app.get('/settings', async (c) => {
@@ -375,7 +409,11 @@ app.get('/settings', async (c) => {
     .filter((t) => t.effective_from > asOfInstant && t.effective_from < dayEnd)
     .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0];
 
-  const { floor, noticeFloor, invoicedUpTo, notice } = await effectiveDateFloor(c, nowIso, tz);
+  const { floor, invoicedFloor, noticeFloor, invoicedUpTo, notice } = await effectiveDateFloor(
+    c,
+    nowIso,
+    tz,
+  );
 
   return c.html(
     renderSettings(
@@ -410,6 +448,11 @@ app.get('/settings', async (c) => {
         noticeFloorLabel: longDate(noticeFloor, tz),
         acceptedFromLabel: longMoment(floor, tz),
         acceptedFromWall: utcToZonedWallTime(floor, tz),
+        // An AGREED change owes no notice, so the only thing under it is work
+        // already invoiced. Empty means nothing constrains it at all -- an
+        // agreement can legitimately be backdated to the day it was reached.
+        agreedFloorWall: invoicedFloor ? utcToZonedWallTime(invoicedFloor, tz) : '',
+        agreedFloorLabel: invoicedFloor ? longMoment(invoicedFloor, tz) : '',
       },
       flashHtml(c),
     ),
@@ -435,31 +478,51 @@ app.post('/settings/terms', async (c) => {
     return c.redirect('/settings?err=' + encodeURIComponent((e as Error).message));
   }
 
-  const { noticeFloor, notice } = await effectiveDateFloor(c, nowIso, tz);
+  // WHICH CONTRACTUAL PATH decides which floor applies. A change the client has
+  // already agreed to owes no notice -- there is nothing to give notice OF --
+  // so applying the notice floor to it would refuse, for two months, to charge
+  // a rate agreed last week. That teaches the operator to lie about the date,
+  // and a date that was lied about is worthless in the dispute it exists for.
+  const basis = parseTermBasis(b.basis);
+  const agreedWith = String(b.agreedWith ?? '').trim();
 
-  // Refuse outright while any active client's notice period is unknown. The
-  // alternative is to compute a floor from the clients we HAVE read, which
-  // looks identical to a correct answer and is short by however long the
-  // unread SOW turns out to be.
-  if (notice.unstated.length > 0) {
+  if (basis === 'agreement' && agreedWith.length === 0) {
     return c.redirect(
       '/settings?err=' +
         encodeURIComponent(
-          `The notice period is not recorded for ${notice.unstated.map((u) => u.name).join(', ')}. ` +
-            'Set it on each client before changing terms — otherwise the earliest effective date is ' +
-            'a guess.',
+          'Name who agreed. An agreed change takes effect because a counterparty assented, and a ' +
+            'record that cannot say who did is not evidence of anything.',
         ),
     );
   }
 
-  if (effectiveFrom < noticeFloor) {
-    return c.redirect(
-      '/settings?err=' +
-        encodeURIComponent(
-          `${notice.days} days' notice is required${notice.longestFrom ? ` (the longest, for ${notice.longestFrom})` : ''}, ` +
-            `so terms cannot take effect before ${longDate(noticeFloor, tz)}.`,
-        ),
-    );
+  const { noticeFloor, notice } = await effectiveDateFloor(c, nowIso, tz);
+
+  if (basis === 'notice') {
+    // Refuse outright while any active client's notice period is unknown. The
+    // alternative is to compute a floor from the clients we HAVE read, which
+    // looks identical to a correct answer and is short by however long the
+    // unread SOW turns out to be.
+    if (notice.unstated.length > 0) {
+      return c.redirect(
+        '/settings?err=' +
+          encodeURIComponent(
+            `The notice period is not recorded for ${notice.unstated.map((u) => u.name).join(', ')}. ` +
+              'Set it on each client before changing terms — otherwise the earliest effective date is ' +
+              'a guess.',
+          ),
+      );
+    }
+
+    if (effectiveFrom < noticeFloor) {
+      return c.redirect(
+        '/settings?err=' +
+          encodeURIComponent(
+            `${notice.days} days' notice is required${notice.longestFrom ? ` (the longest, for ${notice.longestFrom})` : ''}, ` +
+              `so terms cannot take effect before ${longDate(noticeFloor, tz)}.`,
+          ),
+      );
+    }
   }
 
   // Refuse to restate a period that has already been billed. The invoice's own
@@ -503,6 +566,8 @@ app.post('/settings/terms', async (c) => {
 
   const id = await createTermVersion(c.env, {
     effectiveFrom,
+    basis,
+    agreedWith: basis === 'agreement' ? agreedWith : '',
     billingIncrementMinutes: Math.round(increment),
     minimumCallOut: serializeMinimumCallOut(minimum),
     mileageRateCents: Math.round(mileageCents),
@@ -516,7 +581,11 @@ app.post('/settings/terms', async (c) => {
   // between those two facts is somebody actually sending the notice.
   return c.redirect(
     `/settings/terms/${id}/notice?ok=` +
-      encodeURIComponent('Terms recorded. Now serve the notice — nothing has been sent yet.'),
+      encodeURIComponent(
+        basis === 'agreement'
+          ? 'Terms recorded. Send the confirmation — nothing has been sent yet.'
+          : 'Terms recorded. Now serve the notice — nothing has been sent yet.',
+      ),
   );
 });
 
@@ -555,6 +624,8 @@ app.get('/settings/terms/:id/notice', async (c) => {
   return c.html(
     renderNotice({
       business: profile.business,
+      basis: version.basis,
+      agreedWith: version.agreed_with,
       todayLabel: longDate(nowIso, tz),
       effectiveLabel: longDate(version.effective_from, tz),
       noticeDays: profile.settings.termsNoticeDays,

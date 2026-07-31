@@ -18,9 +18,36 @@
 import type { BillingTerms, MinimumCallOut } from './billing';
 import { localDateString, zonedWallTimeToUtc } from './localtime';
 
+/**
+ * How a term change is permitted to take effect.
+ *
+ * 'notice' -- a standard rate update across the client base. The client is
+ * TOLD, and the earliest effective date is bounded by the notice each SOW
+ * requires.
+ *
+ * 'agreement' -- a fee adjustment on renewal or a material scope change. The
+ * client has ALREADY ASSENTED, so there is no notice period; there is nothing
+ * to give notice of. Bounded only by what has already been invoiced.
+ *
+ * Conflating them makes the app refuse, for two months, to charge a rate the
+ * client agreed to last week -- which teaches the operator to lie about the
+ * date, and a date that was lied about is worthless in the dispute it exists
+ * for.
+ */
+export type TermBasis = 'notice' | 'agreement';
+
+export function parseTermBasis(raw: unknown): TermBasis {
+  // Anything unrecognised reads as 'notice', the stricter path. Guessing wrong
+  // in that direction delays a change; guessing wrong the other way applies one
+  // the client never agreed to and was never told about.
+  return String(raw ?? '') === 'agreement' ? 'agreement' : 'notice';
+}
+
 export interface TermVersion {
   id: number;
   effective_from: string;
+  basis: TermBasis;
+  agreed_with: string;
   billing_increment_minutes: number;
   /** Minutes as a number, or JSON `{"weekday":n,"weekend":n}`. */
   minimum_callout: string;
