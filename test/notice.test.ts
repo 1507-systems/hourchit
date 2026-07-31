@@ -94,3 +94,23 @@ describe('the notice letter', () => {
     }
   });
 });
+
+describe('changed terms stay marked wherever they appear', () => {
+  it('marks the changed lines in the full statement of terms', () => {
+    // Bryce, 2026-07-31: "I like the convention of bolding terms that changed
+    // in the notices." Bold carries it in HTML; plain text has no bold, so the
+    // mailed copy says so instead of losing the emphasis silently.
+    const t = noticeText(view());
+    expect(t).toContain('Billing increment: 30 minutes, rounded up  (changed)');
+  });
+
+  it('leaves unchanged lines unmarked', () => {
+    const t = noticeText(view());
+    expect(t).toContain('Minimum call-out: 1 h\n');
+    expect(t).not.toContain('Minimum call-out: 1 h  (changed)');
+  });
+
+  it('marks nothing when there is no predecessor to compare against', () => {
+    expect(noticeText(view({ before: null }))).not.toContain('(changed)');
+  });
+});

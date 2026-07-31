@@ -73,10 +73,6 @@ function termLines(t: NoticeTerms): Array<{ label: string; value: string }> {
   ];
 }
 
-function describeTerms(t: NoticeTerms): string[] {
-  return termLines(t).map((l) => `${l.label}: ${l.value}`);
-}
-
 /**
  * Only the terms that actually change.
  *
@@ -118,9 +114,15 @@ export function noticeText(v: NoticeView): string {
       '',
     );
   }
+  // Plain text has no bold, so the same emphasis is carried by saying so. A
+  // client reading the mailed copy should be able to see which lines moved
+  // without holding the two versions side by side.
+  const movedLabels = new Set(changed.map((l) => l.label));
   lines.push(
     `The terms in full from ${v.effectiveLabel}:`,
-    ...describeTerms(v.after).map((s) => `  - ${s}`),
+    ...termLines(v.after).map(
+      (l) => `  - ${l.label}: ${l.value}${movedLabels.has(l.label) ? '  (changed)' : ''}`,
+    ),
     '',
   );
   if (v.note.trim()) lines.push(v.note.trim(), '');
@@ -149,9 +151,17 @@ export function renderNotice(v: NoticeView): string {
     )
     .join('');
 
-  const termsList = (t: NoticeTerms): string =>
-    `<ul>${describeTerms(t)
-      .map((s) => `<li>${esc(s)}</li>`)
+  // A term that moved stays bold wherever it appears, so the reader can scan
+  // the full statement of terms and still see what is new without going back
+  // to the comparison above.
+  const moved = new Set(changed.map((l) => l.label));
+  const termsList = (t: NoticeTerms, emphasize = false): string =>
+    `<ul>${termLines(t)
+      .map((l) =>
+        emphasize && moved.has(l.label)
+          ? `<li>${esc(l.label)}: <strong>${esc(l.value)}</strong></li>`
+          : `<li>${esc(l.label)}: ${esc(l.value)}</li>`,
+      )
       .join('')}</ul>`;
 
   return layout({
@@ -237,8 +247,10 @@ export function renderNotice(v: NoticeView): string {
         : ''
   }
 
-  <p><strong>The terms in full from ${esc(v.effectiveLabel)}</strong></p>
-  ${termsList(v.after)}
+  <p><strong>The terms in full from ${esc(v.effectiveLabel)}</strong>${
+    changed.length > 0 ? ' <span class="muted">— changes in bold</span>' : ''
+  }</p>
+  ${termsList(v.after, true)}
 
   ${v.note.trim() ? `<p>${esc(v.note.trim())}</p>` : ''}
 
