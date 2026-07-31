@@ -209,6 +209,10 @@ app.post('/invoices', async (c) => {
       profile.settings.invoicePrefix,
       profile.settings.currency,
       profile.settings.mileageBillable,
+      {
+        incrementMinutes: profile.settings.billingIncrementMinutes,
+        minimumCallOutMinutes: profile.settings.minimumCallOutMinutes,
+      },
     );
     return c.redirect(`/invoices/${invoice.id}`);
   } catch (e) {

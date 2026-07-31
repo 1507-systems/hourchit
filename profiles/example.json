@@ -15,7 +15,9 @@
       0,
       6
     ],
-    "invoicePrefix": "EX"
+    "invoicePrefix": "EX",
+    "billingIncrementMinutes": 15,
+    "minimumCallOutMinutes": 60
   },
   "seed": {
     "customer": {

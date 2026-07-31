@@ -5,6 +5,8 @@
 import { decimalHours } from './time';
 import { mileageAmountCents, timeAmountCents } from './money';
 
+import { amountCentsFor, billableHours } from './billing';
+
 export interface TaskTimeAggregate {
   taskId: number;
   taskName: string;
@@ -63,15 +65,22 @@ export function buildInvoice(
   const lines: InvoiceLine[] = [];
 
   for (const t of timeByTask) {
+    // t.seconds is ALREADY billable: each attendance was rounded to the
+    // increment and floored at the minimum before being summed, because the
+    // minimum applies per attendance (MSA 1.5) and rounding an aggregate would
+    // give a different, smaller answer than rounding each visit.
     if (t.seconds <= 0) continue;
-    const hours = decimalHours(t.seconds);
+    const hours = billableHours(t.seconds);
     lines.push({
       kind: 'time',
       description: t.taskName,
       quantity: hours,
       unit: 'hr',
       rateCents: t.rateCentsPerHour,
-      amountCents: timeAmountCents(t.seconds, t.rateCentsPerHour),
+      // From the SAME hours the quantity shows, so the line always multiplies
+      // out. Computing the two independently is what made 0.08 hr at $125.00
+      // print as $10.42.
+      amountCents: amountCentsFor(t.seconds, t.rateCentsPerHour),
     });
   }
 
