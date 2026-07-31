@@ -21,6 +21,14 @@ export interface Customer {
   archived: number;
   workdrive_folder_id: string | null;
   notes: string;
+  /**
+   * Days of written notice a rate change owes this client, per their SOW.
+   *
+   * NULL means UNSTATED, which is not the same as none. Nobody has read this
+   * client's agreement into the system yet, and the app refuses to compute an
+   * earliest-effective-date rather than invent one.
+   */
+  notice_days: number | null;
 }
 
 export interface Task {
@@ -88,11 +96,11 @@ export async function getCustomer(env: Env, id: number): Promise<Customer | null
 
 export async function createCustomer(
   env: Env,
-  c: { name: string; address: string; email: string; notes?: string },
+  c: { name: string; address: string; email: string; notes?: string; noticeDays?: number | null },
 ): Promise<number> {
   const r = await db(env)
-    .prepare('INSERT INTO customers (name, address, email, notes) VALUES (?, ?, ?, ?)')
-    .bind(c.name, c.address, c.email, c.notes ?? '')
+    .prepare('INSERT INTO customers (name, address, email, notes, notice_days) VALUES (?, ?, ?, ?, ?)')
+    .bind(c.name, c.address, c.email, c.notes ?? '', c.noticeDays ?? null)
     .run();
   return r.meta.last_row_id as number;
 }
@@ -511,14 +519,22 @@ export async function listAllCustomers(env: Env): Promise<Customer[]> {
 export async function updateCustomer(
   env: Env,
   id: number,
-  c: { name: string; address: string; email: string; notes: string; workdriveFolderId: string | null },
+  c: {
+    name: string;
+    address: string;
+    email: string;
+    notes: string;
+    workdriveFolderId: string | null;
+    noticeDays: number | null;
+  },
 ): Promise<void> {
   await db(env)
     .prepare(
-      `UPDATE customers SET name = ?, address = ?, email = ?, notes = ?, workdrive_folder_id = ?
+      `UPDATE customers SET name = ?, address = ?, email = ?, notes = ?, workdrive_folder_id = ?,
+              notice_days = ?
         WHERE id = ?`,
     )
-    .bind(c.name, c.address, c.email, c.notes, c.workdriveFolderId, id)
+    .bind(c.name, c.address, c.email, c.notes, c.workdriveFolderId, c.noticeDays, id)
     .run();
 }
 

@@ -139,10 +139,18 @@ export function taskRateForInstant(
 /**
  * The soonest a change may take effect, given the notice the contract requires.
  *
- * NOTICE PERIOD PLUS ONE DAY, counted in local calendar days. The plus-one is
- * not padding: a thirty day notice served today means the client is entitled to
- * thirty FULL days before the change bites, and day thirty is still a day they
- * are owed. Making it effective on day thirty gives twenty-nine and a bit.
+ * NOTICE PERIOD PLUS ONE DAY, counted in local calendar days.
+ *
+ * THE PLUS-ONE IS THE OPERATOR'S BUFFER FOR ACTUALLY SENDING IT, not an extra
+ * day for the client. Bryce, 2026-07-31: "if I change terms NOW the earliest
+ * effective is 30 days (full days) and I still have to send it out. If I set it
+ * to 8/31 that means I have 4 business hours to send it (likely done but the +1
+ * is safe and costs us basically nothing)."
+ *
+ * The contract's clock starts when notice is SERVED, and serving it is a
+ * physical act that has not happened at the moment a version is recorded.
+ * Dating a change exactly notice-period-away silently assumes the letter goes
+ * out today. Usually it does. The day of slack removes the assumption for free.
  *
  * Returns midnight LOCAL on that date as a UTC instant, because a term boundary
  * has to be comparable with the stored work instants. A zero-day notice period
@@ -165,6 +173,43 @@ export function earliestEffectiveFrom(
   // lands an hour out across a DST boundary.
   const shifted = new Date(Date.UTC(y, m - 1, d) + (Math.max(0, Math.floor(noticeDays)) + 1) * 86_400_000);
   return zonedWallTimeToUtc(`${shifted.toISOString().slice(0, 10)}T00:00`, timeZone);
+}
+
+/**
+ * The notice a TENANT-WIDE term change owes, across every client it touches.
+ *
+ * THE LONGEST ONE WINS, and that is the whole reason this function exists. The
+ * clause being implemented -- Matt's A/V MSA section 3.3 -- governs "standard
+ * rate updates applicable across Provider's client base": one change, every
+ * client, each under their own separately negotiated notice period. Satisfying
+ * the shortest of them breaches all the others, silently, and the breach is
+ * only discoverable by reading each SOW back against the date served.
+ *
+ * A client whose notice period is UNSTATED is reported rather than skipped.
+ * Treating null as zero would let one unread SOW quietly shorten the floor for
+ * everybody; treating it as "ask somebody" is the honest reading, because
+ * nobody has said what this client agreed to.
+ *
+ * Archived clients are excluded by the caller: a change cannot owe notice to an
+ * engagement that has ended.
+ */
+export function noticeDaysForTenantChange(
+  clients: Array<{ id: number; name: string; notice_days: number | null }>,
+): { days: number; longestFrom: string | null; unstated: Array<{ id: number; name: string }> } {
+  const unstated = clients
+    .filter((c) => c.notice_days === null || !Number.isFinite(c.notice_days))
+    .map((c) => ({ id: c.id, name: c.name }));
+
+  let days = 0;
+  let longestFrom: string | null = null;
+  for (const c of clients) {
+    if (c.notice_days === null || !Number.isFinite(c.notice_days)) continue;
+    if (c.notice_days > days) {
+      days = c.notice_days;
+      longestFrom = c.name;
+    }
+  }
+  return { days, longestFrom, unstated };
 }
 
 /**

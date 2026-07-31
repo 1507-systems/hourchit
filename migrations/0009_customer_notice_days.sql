@@ -1,0 +1,23 @@
+-- The notice period a rate change owes THIS client.
+--
+-- WHY PER CLIENT. It is a negotiated term, not a property of the business.
+-- Matt's A/V SOW section 3.6, "Rate adjustment notice", is a per-SOW field --
+-- blank in the template precisely so it gets filled in per engagement -- and
+-- the University of Bridgeport SOW names sixty days. Holding one number on the
+-- tenant would apply whatever the last client negotiated to every other client,
+-- and the failure would be invisible until somebody checked a served notice
+-- against the agreement it was served under.
+--
+-- WHY IT DOES NOT MAKE TERMS PER CLIENT. The clause this implements, MSA
+-- section 3.3, covers "standard rate updates applicable across Provider's
+-- client base" -- one change, every client. So term_versions stay tenant-wide
+-- and the floor under an effective date is the LONGEST notice period among
+-- active clients: a change that satisfies the shortest still breaches the rest.
+--
+-- NULLABLE ON PURPOSE, AND NULL IS NOT ZERO. An unstated notice period means
+-- nobody has read that client's SOW into the system yet, which is a different
+-- fact from "this client agreed to none". Defaulting it to a number would
+-- silently answer a question nobody asked, and the app would then compute a
+-- confident earliest-effective-date on an invented term. Instead the settings
+-- page refuses to offer a date and names the clients that need one.
+ALTER TABLE customers ADD COLUMN notice_days INTEGER;

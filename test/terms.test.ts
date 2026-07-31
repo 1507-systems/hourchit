@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   conflictsWithInvoicedWork,
+  noticeDaysForTenantChange,
   parseMinimumCallOut,
   serializeMinimumCallOut,
   taskRateForInstant,
@@ -163,5 +164,44 @@ describe('conflictsWithInvoicedWork', () => {
     expect(conflictsWithInvoicedWork('2026-07-15 09:00:00', '2026-07-15 09:00:00').conflicts).toBe(
       true,
     );
+  });
+});
+
+describe('noticeDaysForTenantChange', () => {
+  it('takes the LONGEST period, because one change touches every client', () => {
+    // MSA 3.3 governs "standard rate updates applicable across Provider's
+    // client base" -- one change, every client, each under their own
+    // separately negotiated period. Satisfying the shortest breaches the rest.
+    const r = noticeDaysForTenantChange([
+      { id: 1, name: 'Grandvale College', notice_days: 30 },
+      { id: 2, name: 'University of Bridgeport', notice_days: 60 },
+      { id: 3, name: 'Harbor Theatre', notice_days: 14 },
+    ]);
+    expect(r.days).toBe(60);
+    expect(r.longestFrom).toBe('University of Bridgeport');
+    expect(r.unstated).toEqual([]);
+  });
+
+  it('reports an unstated client rather than treating null as zero', () => {
+    // Null means nobody has read that SOW in. Counting it as zero would let one
+    // unread agreement quietly shorten the floor for everybody.
+    const r = noticeDaysForTenantChange([
+      { id: 1, name: 'Grandvale College', notice_days: 60 },
+      { id: 2, name: 'Harbor Theatre', notice_days: null },
+    ]);
+    expect(r.unstated).toEqual([{ id: 2, name: 'Harbor Theatre' }]);
+    expect(r.days).toBe(60);
+  });
+
+  it('distinguishes a client that agreed to NO notice from one not yet read in', () => {
+    const none = noticeDaysForTenantChange([{ id: 1, name: 'Cash job', notice_days: 0 }]);
+    expect(none.days).toBe(0);
+    expect(none.unstated).toEqual([]);
+  });
+
+  it('is zero with no clients at all, since there is nobody to notify', () => {
+    const r = noticeDaysForTenantChange([]);
+    expect(r.days).toBe(0);
+    expect(r.longestFrom).toBeNull();
   });
 });

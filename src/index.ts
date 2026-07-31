@@ -60,6 +60,7 @@ import { renderSettings } from './ui/settings';
 import {
   conflictsWithInvoicedWork,
   earliestEffectiveFrom,
+  noticeDaysForTenantChange,
   parseMinimumCallOut,
   serializeMinimumCallOut,
   versionAt,
@@ -325,10 +326,18 @@ function longMoment(iso: string, timeZone: string): string {
 async function effectiveDateFloor(
   c: { env: Env },
   nowIso: string,
-  noticeDays: number,
   timeZone: string,
-): Promise<{ floor: string; noticeFloor: string; invoicedUpTo: string | null }> {
-  const noticeFloor = earliestEffectiveFrom(nowIso, noticeDays, timeZone);
+): Promise<{
+  floor: string;
+  noticeFloor: string;
+  invoicedUpTo: string | null;
+  notice: ReturnType<typeof noticeDaysForTenantChange>;
+}> {
+  // Active clients only. A change cannot owe notice to an engagement that has
+  // ended, and an archived client's SOW would otherwise hold the floor down
+  // forever.
+  const notice = noticeDaysForTenantChange(await listCustomers(c.env));
+  const noticeFloor = earliestEffectiveFrom(nowIso, notice.days, timeZone);
   const invoicedUpTo = await latestInvoicedWorkAt(c.env);
   // A minute past the last invoiced instant: conflictsWithInvoicedWork treats
   // the boundary itself as a conflict, so the floor has to clear it.
@@ -336,7 +345,7 @@ async function effectiveDateFloor(
     ? new Date(Date.parse(invoicedUpTo) + 60_000).toISOString()
     : null;
   const floor = invoicedFloor && invoicedFloor > noticeFloor ? invoicedFloor : noticeFloor;
-  return { floor, noticeFloor, invoicedUpTo };
+  return { floor, noticeFloor, invoicedUpTo, notice };
 }
 
 app.get('/settings', async (c) => {
@@ -366,12 +375,7 @@ app.get('/settings', async (c) => {
     .filter((t) => t.effective_from > asOfInstant && t.effective_from < dayEnd)
     .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0];
 
-  const { floor, noticeFloor, invoicedUpTo } = await effectiveDateFloor(
-    c,
-    nowIso,
-    profile.settings.termsNoticeDays,
-    tz,
-  );
+  const { floor, noticeFloor, invoicedUpTo, notice } = await effectiveDateFloor(c, nowIso, tz);
 
   return c.html(
     renderSettings(
@@ -400,7 +404,9 @@ app.get('/settings', async (c) => {
         inForceVersionId: v?.id ?? null,
         latestInvoicedLabel: invoicedUpTo ? longMoment(invoicedUpTo, tz) : null,
         timezone: tz,
-        noticeDays: profile.settings.termsNoticeDays,
+        noticeDays: notice.days,
+        noticeLongestFrom: notice.longestFrom,
+        noticeUnstated: notice.unstated,
         noticeFloorLabel: longDate(noticeFloor, tz),
         acceptedFromLabel: longMoment(floor, tz),
         acceptedFromWall: utcToZonedWallTime(floor, tz),
@@ -429,13 +435,29 @@ app.post('/settings/terms', async (c) => {
     return c.redirect('/settings?err=' + encodeURIComponent((e as Error).message));
   }
 
-  const { noticeFloor } = await effectiveDateFloor(c, nowIso, profile.settings.termsNoticeDays, tz);
+  const { noticeFloor, notice } = await effectiveDateFloor(c, nowIso, tz);
+
+  // Refuse outright while any active client's notice period is unknown. The
+  // alternative is to compute a floor from the clients we HAVE read, which
+  // looks identical to a correct answer and is short by however long the
+  // unread SOW turns out to be.
+  if (notice.unstated.length > 0) {
+    return c.redirect(
+      '/settings?err=' +
+        encodeURIComponent(
+          `The notice period is not recorded for ${notice.unstated.map((u) => u.name).join(', ')}. ` +
+            'Set it on each client before changing terms — otherwise the earliest effective date is ' +
+            'a guess.',
+        ),
+    );
+  }
+
   if (effectiveFrom < noticeFloor) {
     return c.redirect(
       '/settings?err=' +
         encodeURIComponent(
-          `${profile.settings.termsNoticeDays} days' notice is required, so terms cannot take effect ` +
-            `before ${longDate(noticeFloor, tz)}.`,
+          `${notice.days} days' notice is required${notice.longestFrom ? ` (the longest, for ${notice.longestFrom})` : ''}, ` +
+            `so terms cannot take effect before ${longDate(noticeFloor, tz)}.`,
         ),
     );
   }
@@ -566,6 +588,22 @@ app.get('/settings/terms/:id/notice', async (c) => {
   );
 });
 
+/**
+ * Read the notice-period field, distinguishing blank from zero.
+ *
+ * Both are legitimate: a client may genuinely have agreed to no notice period,
+ * and a client may simply not have had their SOW read in yet. Storing them as
+ * the same value throws away the difference between "none" and "nobody knows",
+ * and the app needs that difference to decide whether it can offer an earliest
+ * effective date at all.
+ */
+function noticeDaysFromForm(raw: unknown): number | null {
+  const text = String(raw ?? '').trim();
+  if (text === '') return null;
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
 // ---- Client management -----------------------------------------------------
 
 app.get('/clients', async (c) => {
@@ -611,6 +649,11 @@ app.post('/clients/:id', async (c) => {
     email: String(b.email ?? ''),
     notes: String(b.notes ?? ''),
     workdriveFolderId: folder.length > 0 ? folder : null,
+    // Blank means UNSTATED, not zero. Coercing an empty field to 0 would
+    // record that this client agreed to no notice at all, which is a term
+    // nobody negotiated -- and it would then shorten the floor for every other
+    // client, since the binding period is the longest across them.
+    noticeDays: noticeDaysFromForm(b.noticeDays),
   });
   return c.redirect(`/clients/${id}?ok=` + encodeURIComponent('Saved'));
 });

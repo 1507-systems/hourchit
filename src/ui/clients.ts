@@ -113,6 +113,19 @@ ${flash}
     <label>WorkDrive folder id
       <input name="workdriveFolderId" value="${esc(customer.workdrive_folder_id ?? '')}"
              placeholder="where this client's documents get filed"></label>
+    <label>Rate-change notice period, days — from this client's SOW
+      <input name="noticeDays" type="number" min="0" step="1"
+             value="${customer.notice_days === null ? '' : customer.notice_days}"
+             placeholder="leave blank if the SOW has not been read in yet"></label>
+    <p class="muted" style="font-size:.85rem">A negotiated term, so it lives here rather than on the
+      business. Changing billing terms applies to every client at once, so the earliest a change may take
+      effect is the LONGEST notice period among them — leaving this blank stops terms being changed at all,
+      which is the point: a floor computed from the clients that HAVE been read in looks exactly like a
+      correct answer.${
+        customer.notice_days === null
+          ? ' <strong>Not set for this client.</strong>'
+          : ''
+      }</p>
     <label>Notes<textarea name="notes" rows="3">${esc(customer.notes)}</textarea></label>
     <button type="submit">Save</button>
   </form>

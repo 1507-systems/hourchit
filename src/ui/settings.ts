@@ -57,6 +57,10 @@ export interface SettingsView {
    * actually came from an invoice, teaches them the wrong arithmetic.
    */
   noticeDays: number;
+  /** Whose SOW set the longest period, so the number is traceable to a contract. */
+  noticeLongestFrom: string | null;
+  /** Clients whose notice period nobody has recorded yet. */
+  noticeUnstated: Array<{ id: number; name: string }>;
   noticeFloorLabel: string;
   /** The later of the two, which is what the form will actually take. */
   acceptedFromLabel: string;
@@ -154,17 +158,27 @@ ${flash}
   <p class="muted">This adds a version rather than editing the current one. Work performed before the
     effective date keeps billing at the older terms — that is what makes an old invoice explainable.</p>
 
-  <p class="flash err"><strong>Recording terms here does not give notice.</strong>
+  ${
+    v.noticeUnstated.length > 0
+      ? `<p class="flash err"><strong>Set a notice period for
+           ${v.noticeUnstated.map((u) => `<a href="/clients/${u.id}">${esc(u.name)}</a>`).join(', ')}
+           before changing terms.</strong> These terms apply to every client, so the earliest date a change
+           may take effect is the LONGEST notice period among them — and until each client's SOW has been
+           read in, any date offered here would be a guess that looks like an answer.</p>`
+      : `<p class="flash err"><strong>Recording terms here does not give notice.</strong>
     ${
       v.noticeDays > 0
-        ? `The contract requires <strong>${v.noticeDays} days'</strong> written notice, so terms cannot take
-           effect before <strong>${esc(v.noticeFloorLabel)}</strong> — ${v.noticeDays} days plus one, because
-           day ${v.noticeDays} is still a day the client is owed.`
-        : `No notice period is configured, so terms cannot take effect before
+        ? `These terms apply to every client, so the binding period is the longest of them:
+           <strong>${v.noticeDays} days</strong>${v.noticeLongestFrom ? `, from ${esc(v.noticeLongestFrom)}'s SOW` : ''}.
+           Terms therefore cannot take effect before <strong>${esc(v.noticeFloorLabel)}</strong> —
+           ${v.noticeDays} days plus one day to actually get the notice sent, since the contract's clock
+           starts when it is served and that has not happened yet.`
+        : `No client has a notice period longer than zero, so terms cannot take effect before
            <strong>${esc(v.noticeFloorLabel)}</strong>. They can never take effect today or in the past,
            whatever the contract says, because work performed this morning would reprice mid-day.`
     }
-    Serve the notice yourself, then record it here. The next page gives you a letter to send.</p>
+    Serve the notice yourself, then record it here. The next page gives you a letter to send.</p>`
+  }
 
   ${guard}
 
