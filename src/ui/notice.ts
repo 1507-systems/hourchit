@@ -198,7 +198,7 @@ export function renderNotice(v: NoticeView): string {
           <option value="">— not addressed —</option>
           ${options}
         </select></label>
-      <button type="submit" class="secondary" style="flex:0 0 auto">Show</button>
+      <button type="submit" class="secondary" style="flex:0 0 auto;width:auto">Show</button>
     </form>
     <p class="muted">Terms are tenant-wide, so every client under them needs their own copy.
       Pick each in turn and send one letter per client.</p>

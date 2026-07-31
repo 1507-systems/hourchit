@@ -132,7 +132,7 @@ ${flash}
   <form method="get" action="/settings" class="row">
     <label style="flex:2">Show terms for work on
       <input type="date" name="asOf" value="${esc(v.asOfDate)}"></label>
-    <button type="submit" class="secondary" style="flex:0 0 auto">Show</button>
+    <button type="submit" class="secondary" style="flex:0 0 auto;width:auto">Show</button>
   </form>
   <table><tbody>
     <tr><td>Billing increment</td><td class="num">${v.increment} min, rounded up</td></tr>
