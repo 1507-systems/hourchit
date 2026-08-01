@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { handleEmail } from './email';
 import { handleQueue } from './queue';
+import { mailboxFor } from './domain/inbound';
 import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
 // editor flags this as missing.
@@ -316,9 +317,15 @@ function escapeText(s: string): string {
   );
 }
 
-function tenantAddress(c: Context<{ Bindings: Env }>): string {
-  const domain = c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app';
-  return `${c.env.TENANT_PROFILE}@${domain}`;
+/**
+ * The tenant's billing mailbox, e.g. billing@tarnsby.hourchit.app.
+ *
+ * A mailbox name rather than the tenant name, because the DOMAIN now says which
+ * tenant this is. billing@ specifically, not one catch-all address: a client
+ * replying about a booking should not land in a thread named for billing.
+ */
+function tenantBillingAddress(c: Context<{ Bindings: Env }>): string {
+  return `billing@${c.env.TENANT_MAIL_DOMAIN ?? ''}`;
 }
 
 /**
@@ -327,8 +334,8 @@ function tenantAddress(c: Context<{ Bindings: Env }>): string {
  * Bryce's four-party rule, 2026-07-30: anything from HourChit (the 1507
  * product) to ITS users -- a tenant like Matt's A/V -- comes from the hourchit
  * apex, because that is the app speaking as itself. Anything from a TENANT to
- * THEIR OWN clients comes from hosted.hourchit.app, unless that tenant has
- * configured their own mail. "Think of it like how Zoho runs."
+ * THEIR OWN clients comes from that tenant's own subdomain, unless the tenant
+ * has configured their own mail entirely. "Think of it like how Zoho runs."
  *
  * An invoice is squarely the second: Matt's A/V billing the University of
  * Bridgeport. Sending it from noreply@hourchit.app would put a vendor the
@@ -336,7 +343,28 @@ function tenantAddress(c: Context<{ Bindings: Env }>): string {
  * exactly the shape of an invoice-fraud email.
  */
 function invoiceMailFrom(c: Context<{ Bindings: Env }>): string {
-  return tenantAddress(c);
+  return tenantBillingAddress(c);
+}
+
+/**
+ * Which of this tenant's mailboxes to answer a thread from.
+ *
+ * Whichever one the inbound message was addressed to, so a reply continues the
+ * conversation the correspondent started rather than appearing to come from a
+ * different desk. Falls back to hello@, the general mailbox, when the stored
+ * recipient is unreadable or was on some older address.
+ */
+function replyFromAddress(c: Context<{ Bindings: Env }>, toAddrs: string): string {
+  const domain = c.env.TENANT_MAIL_DOMAIN ?? '';
+  try {
+    for (const addr of JSON.parse(toAddrs) as string[]) {
+      const mailbox = mailboxFor(addr, domain);
+      if (mailbox) return `${mailbox}@${domain}`;
+    }
+  } catch {
+    // Fall through to the default below.
+  }
+  return `hello@${domain}`;
 }
 
 // ---- Billing terms ---------------------------------------------------------
@@ -848,7 +876,11 @@ app.post('/mail/:id/reply', async (c) => {
     return c.redirect(`/mail/${id}?err=` + encodeURIComponent('Nothing to reply to yet'));
   }
 
-  const from = tenantAddress(c);
+  // Reply from the mailbox the message ARRIVED AT. A conversation that came in
+  // to hello@ should not be answered from billing@: the correspondent wrote to
+  // an address for a reason, and switching it mid-thread breaks their filters
+  // and reads as a different sender.
+  const from = replyFromAddress(c, lastInbound.to_addrs);
   const subject = /^re:/i.test(thread.subject) ? thread.subject : `Re: ${thread.subject}`;
 
   try {
@@ -968,7 +1000,10 @@ async function invoiceEmailFor(c: Context<{ Bindings: Env }>, id: number) {
     customer: { name: customer?.name ?? 'Client' },
     // The disclosure belongs on mail leaving over HourChit's shared domain. A
     // tenant sending from their own would be naming a vendor not in the path.
-    viaHourChit: from.endsWith(`@${c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app'}`),
+    // Any hourchit.app domain means HourChit is in the path and the disclosure
+    // applies. A tenant on their OWN domain is sending as themselves, and
+    // naming a vendor who is not involved would be untrue.
+    viaHourChit: /@([a-z0-9-]+\.)*hourchit\.app$/i.test(from),
   };
   return {
     invoice,

@@ -34,21 +34,27 @@ export function addressList(value: string | null | undefined): string[] {
 }
 
 /**
- * Which tenant an inbound address is for.
+ * Which MAILBOX on this tenant's own mail domain an address names.
  *
- * Addresses are `<tenant>@hosted.hourchit.app`. Subaddressing is stripped:
- * Cloudflare delivers `mattsav+anything@` to the `mattsav@` rule, and the suffix
- * is context rather than identity.
+ * Returns the local part -- "billing", "hello" -- or null if the address is not
+ * on this tenant's domain at all. Null means REJECT: with one Worker per tenant
+ * and a domain per tenant, mail for another domain arriving here is either a
+ * misconfigured routing rule or someone probing, and neither should be stored.
+ *
+ * This replaces tenantFromAddress, which split the tenant out of the LOCAL PART
+ * of a shared `hosted.hourchit.app`. Now the domain carries the identity, so
+ * the local part is free to mean what it does everywhere else: which mailbox.
+ *
+ * Subaddressing is stripped. Cloudflare delivers `billing+anything@` to the
+ * `billing@` rule, and the suffix is context rather than identity.
  */
-export function tenantFromAddress(address: string, hostedDomain: string): string | null {
+export function mailboxFor(address: string, tenantMailDomain: string): string | null {
   const addr = bareAddress(address);
   const at = addr.lastIndexOf('@');
   if (at < 0) return null;
-  const domain = addr.slice(at + 1);
-  if (domain !== hostedDomain.toLowerCase()) return null;
-  const local = addr.slice(0, at);
-  const tenant = local.split('+')[0].trim();
-  return tenant.length > 0 ? tenant : null;
+  if (addr.slice(at + 1) !== tenantMailDomain.trim().toLowerCase()) return null;
+  const mailbox = addr.slice(0, at).split('+')[0].trim();
+  return mailbox.length > 0 ? mailbox : null;
 }
 
 /**

@@ -1,25 +1,28 @@
 /**
  * Cloudflare Email Routing entry point.
  *
- * Addresses are <tenant>@hosted.hourchit.app, one Worker per tenant, so this
- * handler's job is to confirm the mail is for THIS tenant, store it, and stop.
+ * Addresses are <mailbox>@<tenant>.hourchit.app -- one Worker per tenant, one
+ * DOMAIN per tenant -- so this handler's job is to confirm the mail is for this
+ * tenant's domain, store it, and stop.
  * It deliberately does not classify, parse bookings, or send anything: inbound
  * mail is unauthenticated input and may only ever create a record.
  */
 import type { Env } from './env';
-import { tenantFromAddress } from './domain/inbound';
+import { mailboxFor } from './domain/inbound';
 import { parseRaw, storeInbound } from './inbox';
 
 export async function handleEmail(
   message: ForwardableEmailMessage,
   env: Env,
 ): Promise<void> {
-  const hosted = env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app';
-  const tenant = tenantFromAddress(message.to, hosted);
+  // No default. A guessed mail domain would either reject this tenant's real
+  // mail or, worse, accept another tenant's.
+  const domain = env.TENANT_MAIL_DOMAIN;
+  const mailbox = domain ? mailboxFor(message.to, domain) : null;
 
-  // Wrong tenant, or an address on some other domain entirely. Reject rather
-  // than silently accept: a message we do not store must not look delivered.
-  if (tenant === null || tenant !== env.TENANT_PROFILE) {
+  // Not this tenant's domain. Reject rather than silently accept: a message we
+  // do not store must not look delivered to the sender.
+  if (mailbox === null) {
     message.setReject(`No mailbox for ${message.to}`);
     return;
   }
