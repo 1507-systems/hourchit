@@ -18,8 +18,20 @@ export function renderInvoice(args: {
   terms: BillingTerms;
   /** The lines as issued. Empty for invoices predating persistence. */
   lines: InvoiceLine[];
+  /**
+   * Omit the app chrome ENTIRELY rather than relying on print CSS to hide it.
+   *
+   * The print stylesheet is right for a person pressing Cmd-P, but this same
+   * HTML is also handed to Browser Run to render the PDF that gets ATTACHED TO
+   * A CLIENT'S EMAIL, and whether that renderer emulates print media is not
+   * something to bet a client-facing document on. If it renders screen media,
+   * the client receives an invoice with a "Dashboard" link and a "Mark sent"
+   * button on it. Not emitting the elements at all is the same answer under
+   * either media type.
+   */
+  forPrint?: boolean;
 }): string {
-  const { business, customer, invoice, contents, terms, lines } = args;
+  const { business, customer, invoice, contents, terms, lines, forPrint = false } = args;
   const money = (c: number) => formatCents(c, invoice.currency);
 
   // A stored invoice renders from what it recorded. Recomputing would let a
@@ -90,7 +102,7 @@ export function renderInvoice(args: {
   .nav a{color:#656d76}
 </style></head>
 <body>
-  <div class="nav"><a href="/">← Dashboard</a></div>
+  ${forPrint ? '' : `<div class="nav"><a href="/">← Dashboard</a></div>`}
   <div class="top">
     <div>
       <h1>${esc(business.name)}</h1>
@@ -131,9 +143,11 @@ export function renderInvoice(args: {
     </tfoot>
   </table>
 
-  <div class="actions">
+  ${forPrint ? '' : `<div class="actions">
     <a href="/invoices/${invoice.id}/email" style="text-decoration:none"><button>Email to client</button></a>
-    <button class="secondary" onclick="window.print()">Print / Save PDF</button>
+    <a href="/invoices/${invoice.id}/pdf" target="_blank" style="text-decoration:none">
+      <button type="button" class="secondary">Download PDF</button></a>
+    <button class="secondary" onclick="window.print()">Print</button>
     ${
       /* "Mark sent" stays available after emailing, because an invoice can also
          leave by a route the app never sees -- handed over on site, posted, or
@@ -146,7 +160,7 @@ export function renderInvoice(args: {
            </form>`
         : ''
     }
-  </div>
+  </div>`}
 </body></html>`;
 }
 

@@ -973,9 +973,40 @@ async function invoiceEmailFor(c: Context<{ Bindings: Env }>, id: number) {
         contents: { timeEntries: [], mileage: [] },
         terms: termsFor(profile),
         lines,
+        forPrint: true,
       }),
   };
 }
+
+/**
+ * The invoice as a PDF, byte for byte what gets attached to the email.
+ *
+ * Exists so the artifact can be LOOKED AT rather than assumed. A PDF that is
+ * only ever produced inside a send is a PDF nobody checks, and the first
+ * reviewer is then the client. Also useful in its own right: an operator who
+ * wants to hand over a file, or post one, does not have to send an email to
+ * get it.
+ */
+app.get('/invoices/:id/pdf', async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await invoiceEmailFor(c, id);
+  if (!ctx) return c.notFound();
+
+  try {
+    const pdf = await renderPdf(c.env.BROWSER, ctx.printHtml());
+    return new Response(pdf, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        // inline: the operator is looking at it. The email attachment sets its
+        // own disposition separately.
+        'Content-Disposition': `inline; filename="${invoicePdfFilename(ctx.invoice.number)}"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (e) {
+    return c.text(`Could not render the invoice PDF: ${(e as Error).message}`, 502);
+  }
+});
 
 app.get('/invoices/:id/email', async (c) => {
   const id = Number(c.req.param('id'));
