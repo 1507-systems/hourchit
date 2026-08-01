@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { handleEmail } from './email';
+import { handleQueue } from './queue';
 import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
 // editor flags this as missing.
@@ -29,6 +30,7 @@ import {
   getRoute,
   getTask,
   invoiceContents,
+  invoiceDelivery,
   invoiceLines,
   createTermVersion,
   latestInvoicedWorkAt,
@@ -76,6 +78,7 @@ import { renderInvoice } from './ui/invoice';
 import { renderInvoiceSend } from './ui/invoice-send';
 import { invoiceEmailHtml, invoiceEmailSubject, invoiceEmailText } from './mail/invoice-email';
 import { invoicePdfFilename, renderPdf } from './mail/invoice-pdf';
+import { describeDelivery } from './domain/delivery';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -907,6 +910,13 @@ app.get('/invoices/:id', async (c) => {
   if (!customer) return c.notFound();
   const contents = await invoiceContents(env, id);
   const lines = await invoiceLines(env, id);
+
+  // What the receiving mail server did, if this went out by email. Absent for
+  // an invoice handed over on paper -- and that absence is meaningful, so it is
+  // passed through as null rather than defaulted to a hopeful "sent".
+  const sent = await invoiceDelivery(env, id);
+  const d = sent ? describeDelivery(sent.status) : null;
+
   return c.html(
     renderInvoice({
       business: profile.business,
@@ -915,6 +925,10 @@ app.get('/invoices/:id', async (c) => {
       contents,
       terms: termsFor(profile),
       lines,
+      delivery:
+        sent && d
+          ? { ...d, at: sent.at || sent.sentAt, recipient: sent.recipient }
+          : null,
     }),
   );
 });
@@ -1134,8 +1148,10 @@ function readFlash(ok?: string, err?: string) {
 // without going through the Worker entry object.
 export { app };
 
-// Both entry points. `email` is Cloudflare Email Routing; see src/email.ts.
+// Three entry points. `email` is Cloudflare Email Routing (src/email.ts);
+// `queue` consumes Email Sending delivery events (src/queue.ts).
 export default {
   fetch: app.fetch,
   email: handleEmail,
+  queue: handleQueue,
 };

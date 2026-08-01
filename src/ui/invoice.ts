@@ -19,6 +19,13 @@ export function renderInvoice(args: {
   /** The lines as issued. Empty for invoices predating persistence. */
   lines: InvoiceLine[];
   /**
+   * What the receiving mail server did, when the invoice went out by email.
+   * Null when it did not -- which is NOT the same as "sent but no report yet",
+   * and showing a delivery status for an invoice handed over on paper would be
+   * a claim nobody made.
+   */
+  delivery?: { label: string; detail: string; tone: string; at: string | null; recipient: string } | null;
+  /**
    * Omit the app chrome ENTIRELY rather than relying on print CSS to hide it.
    *
    * The print stylesheet is right for a person pressing Cmd-P, but this same
@@ -31,7 +38,7 @@ export function renderInvoice(args: {
    */
   forPrint?: boolean;
 }): string {
-  const { business, customer, invoice, contents, terms, lines, forPrint = false } = args;
+  const { business, customer, invoice, contents, terms, lines, forPrint = false, delivery = null } = args;
   const money = (c: number) => formatCents(c, invoice.currency);
 
   // A stored invoice renders from what it recorded. Recomputing would let a
@@ -90,6 +97,13 @@ export function renderInvoice(args: {
   tfoot td{border:0;padding-top:.4rem}
   tfoot .total{font-weight:700;font-size:1.15rem;border-top:2px solid #1f2328}
   .actions{margin:1.5rem 0;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+  .delivery{margin:1.5rem 0;padding:.7rem .9rem;border-radius:.4rem;border:1px solid #d0d7de;font-size:.9rem}
+  .delivery .when{color:#656d76;font-size:.8rem;margin-left:.4rem}
+  .delivery .detail{color:#656d76;font-size:.85rem;margin-top:.2rem}
+  .delivery-ok{background:#eaf7ee;border-color:#8bd4a1}
+  .delivery-warn{background:#fff8e1;border-color:#ffe8a3}
+  .delivery-bad{background:#fdeceb;border-color:#f3b7b2}
+  .delivery-muted{background:#f6f8fa}
   button{font-size:1rem;padding:.55rem 1rem;border-radius:.4rem;border:0;background:#1f6feb;color:#fff;cursor:pointer}
   button.secondary{background:#eaeef2;color:#1f2328}
   /* .status is INTERNAL WORKFLOW STATE, not part of the invoice. It is hidden
@@ -142,6 +156,19 @@ export function renderInvoice(args: {
       <tr class="total"><td colspan="3" class="num">Total due</td><td class="num">${money(invoice.total_cents)}</td></tr>
     </tfoot>
   </table>
+
+  ${
+    /* Delivery status is for the OPERATOR, never the client: it is our record
+       of their mail server's behaviour, and printing it onto the invoice would
+       be both meaningless to them and faintly creepy. */
+    forPrint || !delivery
+      ? ''
+      : `<div class="delivery delivery-${delivery.tone}">
+           <strong>${delivery.label}</strong>${delivery.recipient ? ` — ${esc(delivery.recipient)}` : ''}
+           ${delivery.at ? `<span class="when">${esc(delivery.at.slice(0, 16).replace('T', ' '))} UTC</span>` : ''}
+           <div class="detail">${esc(delivery.detail)}</div>
+         </div>`
+  }
 
   ${forPrint ? '' : `<div class="actions">
     <a href="/invoices/${invoice.id}/email" style="text-decoration:none"><button>Email to client</button></a>
