@@ -1,4 +1,5 @@
 import type { SendEmailBinding } from './mail/send';
+import type { BrowserRunBinding } from './mail/invoice-pdf';
 
 export interface Env {
   /** D1 binding (see wrangler.jsonc). */
@@ -29,6 +30,19 @@ export interface Env {
    * binding would turn "mail is not wired yet" into "the app does not start".
    */
   EMAIL?: SendEmailBinding;
+  /**
+   * Cloudflare Browser Run, used to render an invoice PDF for attachment.
+   *
+   * Optional in the type, but the invoice send path REFUSES rather than sending
+   * without the attachment. Bryce, 2026-07-31: "there needs to be a PDF
+   * attached." An email whose body carries the invoice is readable, but the
+   * client's accounts payable file a document -- and quietly dropping the
+   * attachment would leave the operator believing they had sent one.
+   *
+   * Needs compatibility_date >= 2026-03-24 for quickAction(). No API token: the
+   * Worker reaches Browser Run over Cloudflare's own network.
+   */
+  BROWSER?: BrowserRunBinding;
   /**
    * The From address for login codes, e.g. `login@hosted.hourchit.app`.
    *

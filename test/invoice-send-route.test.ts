@@ -99,13 +99,36 @@ function env(over: Partial<Env> = {}, dbOver = {}) {
 
 const AUTH = { headers: { cookie: 'hourchit_session=test-token' } };
 
+/** A Browser Run stand-in returning a few plausible PDF bytes. */
+function fakeBrowser() {
+  return {
+    async quickAction() {
+      return new Response(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]), {
+        status: 200,
+      });
+    },
+  };
+}
+
 /** A mail binding that records what it was asked to send. */
 function recordingMail() {
-  const sent: Array<{ to: string; from: string; subject: string; html?: string }> = [];
+  const sent: Array<{
+    to: string;
+    from: string;
+    subject: string;
+    html?: string;
+    attachments?: Array<{ filename: string; type: string }>;
+  }> = [];
   return {
     sent,
     binding: {
-      async send(m: { to: string; from: string; subject: string; html?: string }) {
+      async send(m: {
+        to: string;
+        from: string;
+        subject: string;
+        html?: string;
+        attachments?: Array<{ filename: string; type: string }>;
+      }) {
         sent.push(m);
         return { messageId: '<generated@hosted.hourchit.app>' };
       },
@@ -142,7 +165,7 @@ describe('POST /invoices/:id/email', () => {
   it('allows the resend once acknowledged', async () => {
     const mail = recordingMail();
     const { e } = env(
-      { EMAIL: mail.binding as never },
+      { EMAIL: mail.binding as never, BROWSER: fakeBrowser() as never },
       { invoice: { ...INVOICE, status: 'sent', sent_at: '2026-07-30T10:00:00.000Z', sent_method: 'email' } },
     );
     const res = await app.request(
@@ -168,7 +191,7 @@ describe('POST /invoices/:id/email', () => {
         throw new Error('sender address is not onboarded');
       },
     };
-    const { e, writes } = env({ EMAIL: failing as never });
+    const { e, writes } = env({ EMAIL: failing as never, BROWSER: fakeBrowser() as never });
     const res = await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
     expect(res.headers.get('location')).toContain('Not%20sent');
     expect(writes.some((w) => /UPDATE invoices SET status = 'sent'/.test(w))).toBe(false);
@@ -179,7 +202,7 @@ describe('POST /invoices/:id/email', () => {
     // Matt. Sending it from noreply@hourchit.app puts a vendor the client has
     // never heard of on a demand for money.
     const mail = recordingMail();
-    const { e } = env({ EMAIL: mail.binding as never, TENANT_PROFILE: 'core' });
+    const { e } = env({ EMAIL: mail.binding as never, BROWSER: fakeBrowser() as never, TENANT_PROFILE: 'core' });
     await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
     expect(mail.sent[0].from).toBe('core@hosted.hourchit.app');
     expect(mail.sent[0].from).not.toContain('noreply@');
@@ -187,10 +210,47 @@ describe('POST /invoices/:id/email', () => {
 
   it('marks it sent and logs it outbound on success', async () => {
     const mail = recordingMail();
-    const { e, writes } = env({ EMAIL: mail.binding as never });
+    const { e, writes } = env({ EMAIL: mail.binding as never, BROWSER: fakeBrowser() as never });
     await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
     expect(mail.sent[0].to).toBe('grandvale@bpsmail.net');
     expect(writes.some((w) => /INSERT INTO messages/.test(w))).toBe(true);
     expect(writes.some((w) => /UPDATE invoices SET status = 'sent'/.test(w))).toBe(true);
+  });
+});
+
+describe('the PDF attachment', () => {
+  it('refuses to send at all when the PDF cannot be rendered', async () => {
+    // Bryce: "there needs to be a PDF attached." Sending without it would leave
+    // the operator believing a document went out that did not, and they would
+    // find out when the client asked for one. The refusal is recoverable; a
+    // quietly incomplete invoice is discovered by the client.
+    const mail = recordingMail();
+    const { e, writes } = env({ EMAIL: mail.binding as never }); // no BROWSER binding
+    const res = await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
+    expect(res.headers.get('location')).toContain('PDF%20could%20not%20be%20rendered');
+    expect(mail.sent).toHaveLength(0);
+    expect(writes.some((w) => /UPDATE invoices SET status = 'sent'/.test(w))).toBe(false);
+  });
+
+  it('does not send when Browser Run errors', async () => {
+    const mail = recordingMail();
+    const broken = {
+      async quickAction() {
+        return new Response('browser unavailable', { status: 503 });
+      },
+    };
+    const { e } = env({ EMAIL: mail.binding as never, BROWSER: broken as never });
+    const res = await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
+    expect(res.headers.get('location')).toContain('503');
+    expect(mail.sent).toHaveLength(0);
+  });
+
+  it('sends the PDF with the invoice number in the filename', async () => {
+    const mail = recordingMail();
+    const { e } = env({ EMAIL: mail.binding as never, BROWSER: fakeBrowser() as never });
+    await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
+    expect(mail.sent[0].attachments).toHaveLength(1);
+    expect(mail.sent[0].attachments![0].filename).toBe('Invoice-TBY-0008.pdf');
+    expect(mail.sent[0].attachments![0].type).toBe('application/pdf');
   });
 });

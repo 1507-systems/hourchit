@@ -75,6 +75,7 @@ import { sendMail } from './mail/send';
 import { renderInvoice } from './ui/invoice';
 import { renderInvoiceSend } from './ui/invoice-send';
 import { invoiceEmailHtml, invoiceEmailSubject, invoiceEmailText } from './mail/invoice-email';
+import { invoicePdfFilename, renderPdf } from './mail/invoice-pdf';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -945,19 +946,34 @@ async function invoiceEmailFor(c: Context<{ Bindings: Env }>, id: number) {
   const customer = await getCustomer(c.env, invoice.customer_id);
   const lines = await invoiceLines(c.env, id);
 
+  const from = invoiceMailFrom(c);
   const view = {
     invoice,
     lines,
     business: profile.business,
     customer: { name: customer?.name ?? 'Client' },
+    // The disclosure belongs on mail leaving over HourChit's shared domain. A
+    // tenant sending from their own would be naming a vendor not in the path.
+    viaHourChit: from.endsWith(`@${c.env.HOSTED_MAIL_DOMAIN ?? 'hosted.hourchit.app'}`),
   };
   return {
     invoice,
     customer,
     profile,
     view,
+    from,
     to: customer?.email?.trim() ? customer.email.trim() : null,
     subject: invoiceEmailSubject(view),
+    /** The web invoice, rendered for the PDF attachment. */
+    printHtml: () =>
+      renderInvoice({
+        business: profile.business,
+        customer: customer as NonNullable<typeof customer>,
+        invoice,
+        contents: { timeEntries: [], mileage: [] },
+        terms: termsFor(profile),
+        lines,
+      }),
   };
 }
 
@@ -973,7 +989,7 @@ app.get('/invoices/:id/email', async (c) => {
         invoice: ctx.invoice,
         customerName: ctx.customer?.name ?? 'Client',
         to: ctx.to,
-        from: invoiceMailFrom(c),
+        from: ctx.from,
         subject: ctx.subject,
         previewHtml: invoiceEmailHtml(ctx.view),
         alreadySent: ctx.invoice.sent_at
@@ -1011,9 +1027,23 @@ app.post('/invoices/:id/email', async (c) => {
     );
   }
 
-  const from = invoiceMailFrom(c);
+  const from = ctx.from;
   const text = invoiceEmailText(ctx.view);
   const html = invoiceEmailHtml(ctx.view);
+
+  // Render the PDF BEFORE sending, and refuse the send if it fails. Bryce:
+  // "there needs to be a PDF attached." Sending without it would leave the
+  // operator believing a document went out that did not -- and they would only
+  // find out when the client asked for one.
+  let pdf: ArrayBuffer;
+  try {
+    pdf = await renderPdf(c.env.BROWSER, ctx.printHtml());
+  } catch (e) {
+    return c.redirect(
+      `/invoices/${id}/email?err=` +
+        encodeURIComponent(`Not sent — the invoice PDF could not be rendered: ${(e as Error).message}`),
+    );
+  }
 
   let messageId: string | null = null;
   try {
@@ -1022,6 +1052,14 @@ app.post('/invoices/:id/email', async (c) => {
       subject: ctx.subject,
       text,
       html,
+      attachments: [
+        {
+          content: pdf,
+          filename: invoicePdfFilename(ctx.invoice.number),
+          type: 'application/pdf',
+          disposition: 'attachment',
+        },
+      ],
     });
     messageId = sent.messageId;
   } catch (e) {

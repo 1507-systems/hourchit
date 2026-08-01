@@ -30,6 +30,36 @@ export interface InvoiceEmailView {
   lines: InvoiceLine[];
   business: { name: string; address: string; email: string; phone: string };
   customer: { name: string };
+  /**
+   * True when this is going out over HourChit's shared sending domain rather
+   * than the tenant's own. Drives the sent-on-behalf-of disclosure; see
+   * onBehalfOfText.
+   */
+  viaHourChit: boolean;
+}
+
+/**
+ * The sent-on-behalf-of line, and it does real work.
+ *
+ * A client of Matt's A/V receives an invoice from hosted.hourchit.app -- a
+ * domain they have never heard of, on a demand for money. That is the single
+ * most suspicious thing about this email, and the fix is not to hide it but to
+ * explain it in the same breath, the way every white-labelled service does.
+ *
+ * The wording is lifted from a Bristlecone/RangeWorks confirmation Bryce
+ * received and liked: name the business in BOLD first, because that is who the
+ * reader has a relationship with, then say plainly what the platform does. The
+ * tenant is the party; HourChit is the plumbing.
+ *
+ * It appears ONLY when sending over the shared domain. A tenant who has
+ * configured their own mail is sending as themselves, and a disclosure naming a
+ * vendor who is not in the path would be untrue as well as unnecessary.
+ */
+export function onBehalfOfText(businessName: string): string {
+  return (
+    `This message was sent on behalf of ${businessName}. HourChit provides the time tracking, ` +
+    'invoicing, and billing services used by the business.'
+  );
 }
 
 export function invoiceEmailSubject(v: InvoiceEmailView): string {
@@ -67,6 +97,7 @@ export function invoiceEmailText(v: InvoiceEmailView): string {
 
   out.push('', `TOTAL DUE  ${money(v.invoice.total_cents)}`, '');
   out.push(`Questions: ${v.business.email} · ${v.business.phone}`);
+  if (v.viaHourChit) out.push('', '--', onBehalfOfText(v.business.name));
   return out.join('\n');
 }
 
@@ -145,5 +176,14 @@ export function invoiceEmailHtml(v: InvoiceEmailView): string {
 
   <p style="${MUTED};margin-top:24px">Questions about this invoice?
     ${esc(v.business.email)} · ${esc(v.business.phone)}</p>
+
+  ${
+    v.viaHourChit
+      ? `<p style="${MUTED};margin-top:20px;padding-top:12px;border-top:1px solid #d0d7de">
+           This message was sent on behalf of <strong>${esc(v.business.name)}</strong>.
+           HourChit provides the time tracking, invoicing, and billing services used by the
+           business.</p>`
+      : ''
+  }
 </div>`;
 }

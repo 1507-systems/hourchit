@@ -47,6 +47,7 @@ const view = (over: Partial<InvoiceEmailView> = {}): InvoiceEmailView => ({
     phone: '(203) 555-0142',
   },
   customer: { name: 'Grandvale College' },
+  viaHourChit: true,
   ...over,
 });
 
@@ -108,5 +109,32 @@ describe('the invoice email body', () => {
     const oneDay = { ...invoice, period_start: '2026-08-15', period_end: '2026-08-15' };
     expect(invoiceEmailText(view({ invoice: oneDay }))).toContain('Service period 2026-08-15');
     expect(invoiceEmailText(view({ invoice: oneDay }))).not.toContain('–');
+  });
+});
+
+describe('the sent-on-behalf-of disclosure', () => {
+  it('names the BUSINESS, not HourChit, as who the message is from', () => {
+    // A client receives an invoice from a domain they have never heard of, on a
+    // demand for money. That is the most suspicious thing about this email, and
+    // the fix is to explain it rather than hide it. Wording taken from a
+    // Bristlecone/RangeWorks confirmation Bryce liked: the business first,
+    // because that is who the reader has a relationship with.
+    const t = invoiceEmailText(view());
+    expect(t).toContain(
+      'This message was sent on behalf of Tarnsby A/V Services LLC. HourChit provides the ' +
+        'time tracking, invoicing, and billing services used by the business.',
+    );
+  });
+
+  it('puts the business name in bold in the HTML', () => {
+    expect(invoiceEmailHtml(view())).toContain('<strong>Tarnsby A/V Services LLC</strong>');
+  });
+
+  it('is omitted when the tenant sends from their own mail', () => {
+    // A tenant sending as themselves would be naming a vendor who is not in the
+    // path, which is untrue as well as unnecessary.
+    const own = view({ viaHourChit: false });
+    expect(invoiceEmailText(own)).not.toContain('on behalf of');
+    expect(invoiceEmailHtml(own)).not.toContain('on behalf of');
   });
 });
