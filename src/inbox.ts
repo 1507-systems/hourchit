@@ -196,6 +196,46 @@ export async function storeInbound(
  * something we did not is worse than no row: it would read, later, as proof of
  * a notice that never left.
  */
+/**
+ * The thread an outbound message we initiate belongs in.
+ *
+ * Inbound mail threads itself off In-Reply-To and References; a message WE send
+ * first has neither, so it needs somewhere to live before the client has
+ * replied. Matching on subject key and customer means a reply lands back in the
+ * same thread -- storeInbound will match the Message-ID we recorded, and even
+ * if the client's mailer strips it, the subject key still finds this thread.
+ *
+ * Each invoice therefore gets its own conversation, because each carries its
+ * own number in the subject. That is the right grain: "what was said about
+ * invoice 0008" is the question actually asked later, not "everything ever
+ * discussed with this client".
+ */
+export async function openOutboundThread(
+  env: Env,
+  customerId: number | null,
+  subject: string,
+): Promise<number> {
+  const key = subjectKey(subject);
+  if (key.length > 0) {
+    const existing = await env.DB.prepare(
+      `SELECT id FROM threads
+        WHERE subject_key = ? AND customer_id IS ${customerId === null ? 'NULL' : '?'}
+        ORDER BY last_message_at DESC LIMIT 1`,
+    )
+      .bind(...(customerId === null ? [key] : [key, customerId]))
+      .first<{ id: number }>();
+    if (existing) return existing.id;
+  }
+
+  const created = await env.DB.prepare(
+    `INSERT INTO threads (customer_id, subject, subject_key, last_message_at)
+     VALUES (?, ?, ?, datetime('now')) RETURNING id`,
+  )
+    .bind(customerId, subject, key)
+    .first<{ id: number }>();
+  return created!.id;
+}
+
 export async function storeOutbound(
   env: Env,
   msg: {

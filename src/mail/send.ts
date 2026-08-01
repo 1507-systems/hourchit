@@ -30,6 +30,20 @@
  * today makes a routine types bump a compile break. What we actually depend on
  * is one method with four fields.
  */
+/**
+ * One attached file. Cloudflare caps a whole message, attachments included, at
+ * 5 MiB; `content` may be an ArrayBuffer on a deployed Worker, though the local
+ * simulator cannot serialize one -- binary attachments only work against a real
+ * deploy.
+ */
+export interface MailAttachment {
+  content: ArrayBuffer | ArrayBufferView | string;
+  filename: string;
+  /** MIME type, e.g. application/pdf. */
+  type: string;
+  disposition: 'attachment' | 'inline';
+}
+
 export interface SendEmailBinding {
   send(message: {
     to: string;
@@ -37,6 +51,7 @@ export interface SendEmailBinding {
     subject: string;
     text?: string;
     html?: string;
+    attachments?: MailAttachment[];
     /**
      * Threading and other RFC headers. Cloudflare documents In-Reply-To and
      * References here, which is what lets a reply we send land in the same
@@ -51,6 +66,7 @@ export interface OutboundMessage {
   subject: string;
   text: string;
   html?: string;
+  attachments?: MailAttachment[];
   /** Message-ID being replied to, if any. Sets In-Reply-To and seeds References. */
   inReplyTo?: string | null;
   /** Existing References chain, oldest first, space separated. */
@@ -86,6 +102,7 @@ export async function sendMail(
     subject: msg.subject,
     text: msg.text,
     ...(msg.html ? { html: msg.html } : {}),
+    ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
   });
 
