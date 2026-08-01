@@ -30,7 +30,12 @@ export interface BrowserRunBinding {
     options: {
       html?: string;
       url?: string;
-      pdfOptions?: { format?: string; printBackground?: boolean; margin?: Record<string, string> };
+      pdfOptions?: {
+        /** Lowercase only: 'letter' | 'legal' | 'a4' | ... See renderPdf. */
+        format?: string;
+        printBackground?: boolean;
+        margin?: Record<string, string>;
+      };
     },
   ): Promise<Response>;
 }
@@ -63,7 +68,9 @@ export async function renderPdf(
   const res = await browser.quickAction('pdf', {
     html,
     pdfOptions: {
-      format: 'Letter',
+      // LOWERCASE. Browser Run rejects "Letter" with a 400 listing the valid
+      // values -- puppeteer accepts the capitalised form, this does not.
+      format: 'letter',
       // The invoice's own print stylesheet already hides the app chrome and
       // forces light colours; printBackground keeps any deliberate fills.
       printBackground: true,
