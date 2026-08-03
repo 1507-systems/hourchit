@@ -3,6 +3,7 @@ import type { ProfileBusiness } from '../config/profile';
 import { formatCents } from '../domain/money';
 import { amountCentsFor, billableHours, billableSeconds, type BillingTerms } from '../domain/billing';
 import { esc, nl2br } from './html';
+import { BRAND_TOKENS_LIGHT } from './theme';
 
 /** A clean, printable invoice. "Print to PDF" from the browser is the R1 output. */
 export function renderInvoice(args: {
@@ -66,7 +67,7 @@ export function renderInvoice(args: {
   );
   const legacyMileageRows = contents.mileage.map(
     (m) => `<tr>
-      <td>Mileage: ${esc(m.occurred_local.slice(0, 10))} <span class="muted">(${esc(m.reason)})</span></td>
+      <td>Mileage: <span class="mono">${esc(m.occurred_local.slice(0, 10))}</span> <span class="muted">(${esc(m.reason)})</span></td>
       <td class="num">${m.miles} mi</td>
       <td class="num">${money(m.rate_cents_per_mile)}/mi</td>
       <td class="num">${money(Math.round((m.miles * m.rate_cents_per_mile)))}</td>
@@ -86,34 +87,57 @@ export function renderInvoice(args: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(invoice.number || `Invoice #${invoice.id}`)}</title>
 <style>
-  body{font-family:system-ui,-apple-system,sans-serif;color:#1f2328;max-width:48rem;margin:1.5rem auto;padding:0 1rem}
+${BRAND_TOKENS_LIGHT}
+  body{font-family:var(--sans);color:var(--text);background:var(--paper);
+    max-width:48rem;margin:1.5rem auto;padding:0 1rem}
   .top{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem}
-  h1{font-size:1.6rem;margin:.2rem 0}
-  .muted{color:#656d76;font-size:.85rem}
+  h1{font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;font-size:1.4rem;margin:.2rem 0}
+  .muted{color:var(--text-dim);font-size:.85rem}
   .parties{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin:1.5rem 0}
   table{width:100%;border-collapse:collapse;margin-top:1rem}
-  th,td{text-align:left;padding:.5rem .4rem;border-bottom:1px solid #d0d7de}
-  th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:.5rem .4rem;border-bottom:1px solid var(--rule)}
+  th{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--text-dim);font-weight:600}
+  th.num,td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
   tfoot td{border:0;padding-top:.4rem}
-  tfoot .total{font-weight:700;font-size:1.15rem;border-top:2px solid #1f2328}
+  /* The one currency figure on this document coloured amber: what is actually
+     owed. Every other rate and line amount above stays the ordinary text
+     colour -- see theme.ts on why amber does not spread to all of them. */
+  tfoot .total{font-weight:700;font-size:1.15rem;border-top:2px solid var(--ink)}
+  tfoot .total td.num{color:var(--amber-text)}
   .actions{margin:1.5rem 0;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
-  .delivery{margin:1.5rem 0;padding:.7rem .9rem;border-radius:.4rem;border:1px solid #d0d7de;font-size:.9rem}
-  .delivery .when{color:#656d76;font-size:.8rem;margin-left:.4rem}
-  .delivery .detail{color:#656d76;font-size:.85rem;margin-top:.2rem}
-  .delivery-ok{background:#eaf7ee;border-color:#8bd4a1}
-  .delivery-warn{background:#fff8e1;border-color:#ffe8a3}
-  .delivery-bad{background:#fdeceb;border-color:#f3b7b2}
-  .delivery-muted{background:#f6f8fa}
-  button{font-size:1rem;padding:.55rem 1rem;border-radius:.4rem;border:0;background:#1f6feb;color:#fff;cursor:pointer}
-  button.secondary{background:#eaeef2;color:#1f2328}
+  .delivery{margin:1.5rem 0;padding:.7rem .9rem;border-radius:10px;border:1px solid var(--rule);
+    font-size:.9rem;background:var(--paper-2)}
+  .delivery .when{color:var(--text-dim);font-size:.8rem;margin-left:.4rem;font-family:var(--mono)}
+  .delivery .detail{color:var(--text-dim);font-size:.85rem;margin-top:.2rem}
+  /* No red/green/yellow in this palette, so ok/warn/bad/muted are told apart
+     by border weight rather than hue: heavier means more worth the
+     operator's attention. "warn" (a deferred send still being retried) is
+     the one delivery state that is genuinely still in progress, which is
+     the one place amber legitimately belongs here too. */
+  .delivery-ok{border-left:3px solid var(--ink-2)}
+  .delivery-warn{border-left:3px solid var(--amber-deep)}
+  .delivery-bad{border-left:3px solid var(--ink)}
+  .delivery-muted{background:var(--paper)}
+  .status-draft{font-family:var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--amber-text)}
+  button{font-size:1rem;padding:.55rem 1rem;border-radius:.4rem;border:0;
+    background:var(--ink-2);color:var(--btn-ink-fg);cursor:pointer;font-weight:600}
+  button.secondary{background:transparent;border:1px solid var(--rule);color:var(--text)}
   /* .status is INTERNAL WORKFLOW STATE, not part of the invoice. It is hidden
      in print because the order of operations guarantees it would otherwise be
      wrong on every copy a client ever sees: you print or save the PDF, and THEN
      mark it sent -- so at the moment of printing an invoice is always "draft",
      and every document going out would tell the client not to pay it yet. */
-  @media print{.actions,.nav,.status{display:none}}
+  @media print{
+    .actions,.nav,.status{display:none}
+    /* Kraft is print-only by design: a paper-stock feel behind the invoice's
+       own header band on the copy that leaves the building, while the
+       on-screen view stays plain paper/white. */
+    .top{background:var(--kraft);padding:1rem 1.2rem;border-radius:8px;margin:0 0 1rem}
+  }
   .nav{margin-bottom:1rem}
-  .nav a{color:#656d76}
+  .nav a{color:var(--text-dim)}
 </style></head>
 <body>
   ${forPrint ? '' : `<div class="nav"><a href="/">← Dashboard</a></div>`}
@@ -125,9 +149,13 @@ export function renderInvoice(args: {
     </div>
     <div style="text-align:right">
       <h1>INVOICE</h1>
-      <div class="muted">${esc(invoice.number || `#${invoice.id}`)}</div>
-      <div class="muted">Issued ${esc(invoice.created_at.slice(0, 10))}</div>
-      <div class="muted status">Status: ${esc(invoice.status)}</div>
+      <div class="muted mono">${esc(invoice.number || `#${invoice.id}`)}</div>
+      <div class="muted mono">Issued ${esc(invoice.created_at.slice(0, 10))}</div>
+      <div class="muted status">Status: ${
+        invoice.status === 'draft'
+          ? `<span class="status-draft">${esc(invoice.status)}</span>`
+          : esc(invoice.status)
+      }</div>
     </div>
   </div>
 
@@ -140,7 +168,7 @@ export function renderInvoice(args: {
     </div>
     <div style="text-align:right">
       <div class="muted">Service period</div>
-      <div>${period || '&mdash;'}</div>
+      <div class="mono">${period || '&mdash;'}</div>
     </div>
   </div>
 

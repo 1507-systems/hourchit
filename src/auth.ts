@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env } from './env';
 import { esc } from './ui/html';
+import { BRAND_TOKENS, WORDMARK_STYLE, wordmark } from './ui/theme';
 import { loadProfile } from './config/profiles';
 import { generateCode, isAllowedLogin, normalizeEmail } from './domain/otp';
 import { isRateLimited, redeemCode, revokeSession, sessionEmail, storeCode } from './sessions';
@@ -96,12 +97,28 @@ function page(title: string, body: string): string {
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · HourChit</title>
-<style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}
-input,button{font-size:1rem;padding:.6rem;width:100%;box-sizing:border-box;margin:.3rem 0}
-button{background:#1f6feb;color:#fff;border:0;border-radius:.4rem}
-.err{color:#c00}.note{color:#555;font-size:.9rem}
-input[name=code]{font-size:1.6rem;letter-spacing:.4em;text-align:center;font-family:ui-monospace,monospace}</style>
-</head><body><h1>HourChit</h1>
+<style>
+${BRAND_TOKENS}
+${WORDMARK_STYLE}
+body{font-family:var(--sans);background:var(--paper);color:var(--text);
+  max-width:22rem;margin:4rem auto;padding:0 1rem}
+h1{margin:0 0 1.6rem}
+.wordmark{font-size:1.5rem}
+label{display:block;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--text-dim);margin:.6rem 0 .2rem}
+input,button{font-size:1rem;padding:.6rem;width:100%;box-sizing:border-box;margin:.3rem 0;
+  border-radius:.4rem;border:1px solid var(--rule);background:var(--paper);color:var(--text);font-family:var(--sans)}
+/* The login form's only button is a neutral ink chip, same as everywhere
+   else in the app -- signing in is not an "on the clock" action, so amber
+   stays out of it entirely. */
+button{background:var(--ink-2);color:var(--btn-ink-fg);border:0;cursor:pointer;font-weight:600}
+input:focus-visible,button:focus-visible{outline:2px solid var(--ink-2);outline-offset:1px}
+.err{color:var(--text);font-weight:600}
+.err::before{content:"\\26A0  "}
+.note{color:var(--text-dim);font-size:.9rem}
+input[name=code]{font-size:1.6rem;letter-spacing:.4em;text-align:center;font-family:var(--mono)}
+</style>
+</head><body><h1>${wordmark()}</h1>
 ${body}
 </body></html>`;
 }

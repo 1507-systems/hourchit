@@ -35,7 +35,7 @@ export function renderDashboard(d: DashboardData): string {
 
   const timer = d.running
     ? `<div class="card">
-        <div class="muted">On the clock: ${esc(d.running.taskName)}</div>
+        <div class="on-clock">On the clock: ${esc(d.running.taskName)}</div>
         <div class="big" id="elapsed" data-start="${d.running.startedAtMs}">0:00:00</div>
         <form method="post" action="/timer/stop"><button class="stop" type="submit">Stop &amp; log</button></form>
       </div>`
@@ -95,7 +95,7 @@ export function renderDashboard(d: DashboardData): string {
         ${d.recentMileage
           .map(
             (m) => `<tr>
-              <td>${esc(m.occurred_local.slice(0, 16).replace('T', ' '))}</td>
+              <td class="mono">${esc(m.occurred_local.slice(0, 16).replace('T', ' '))}</td>
               <td class="num">${m.miles}</td>
               <td>${m.billable ? 'yes' : 'no'}</td>
               <td class="muted">${esc(m.reason)}</td>
@@ -110,8 +110,12 @@ export function renderDashboard(d: DashboardData): string {
         ${d.invoices
           .map(
             (i) => `<tr>
-              <td>${esc(i.number || `#${i.id}`)}</td>
-              <td>${esc(i.status)}</td>
+              <td class="mono">${esc(i.number || `#${i.id}`)}</td>
+              <td>${
+                i.status === 'draft'
+                  ? `<span class="status-draft">${esc(i.status)}</span>`
+                  : esc(i.status)
+              }</td>
               <td class="num">${money(i.total_cents)}</td>
               <td><a class="btnlink" href="/invoices/${i.id}">view</a></td>
             </tr>`,
@@ -124,7 +128,7 @@ export function renderDashboard(d: DashboardData): string {
     d.customer && d.unbilledTotalCents > 0
       ? `<form method="post" action="/invoices">
            <input type="hidden" name="customerId" value="${d.customer.id}">
-           <button type="submit">Create invoice: ${money(d.unbilledTotalCents)} unbilled</button>
+           <button type="submit">Create invoice: <span class="amt">${money(d.unbilledTotalCents)}</span> unbilled</button>
          </form>`
       : `<p class="muted">Nothing unbilled to invoice yet.</p>`;
 

@@ -1,4 +1,5 @@
 import { esc } from './html';
+import { BRAND_TOKENS } from './theme';
 
 /**
  * The mail views.
@@ -41,22 +42,33 @@ function shell(title: string, body: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · HourChit</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:44rem;margin:2rem auto;padding:0 1rem;color:#111}
-a{color:#1f6feb}
-.row{display:block;padding:.7rem .2rem;border-bottom:1px solid #eee;text-decoration:none;color:inherit}
-.row:hover{background:#fafafa}
+${BRAND_TOKENS}
+body{font-family:var(--sans);background:var(--paper);color:var(--text);
+  max-width:44rem;margin:2rem auto;padding:0 1rem}
+a{color:var(--text);text-decoration:underline}
+h1{font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;font-size:1.1rem}
+.row{display:block;padding:.7rem .2rem;border-bottom:1px solid var(--rule);text-decoration:none;color:inherit}
+.row:hover{background:var(--paper-2)}
 .subj{font-weight:600}
-.meta{color:#666;font-size:.85rem}
-.msg{border:1px solid #e5e5e5;border-radius:.5rem;padding:.8rem;margin:.8rem 0}
-.msg.out{background:#f4f8ff;border-color:#d6e4ff}
+.meta{color:var(--text-dim);font-size:.85rem;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.msg{border:1px solid var(--rule);background:var(--card);border-radius:10px;padding:.8rem;margin:.8rem 0}
+/* Outbound is marked by weight (a left accent), not a colour family the
+   palette doesn't have -- see theme.ts on keeping amber scarce. */
+.msg.out{border-left:3px solid var(--ink-2)}
 .msg pre{white-space:pre-wrap;word-wrap:break-word;font:inherit;margin:.5rem 0 0}
-.tag{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
-.derived{color:#8a6d000;background:#fff8e1;border:1px solid #ffe8a3;color:#7a5d00;
-  font-size:.75rem;padding:.15rem .4rem;border-radius:.25rem}
-textarea{width:100%;box-sizing:border-box;font:inherit;padding:.6rem;min-height:7rem}
-button{font-size:1rem;padding:.6rem 1rem;background:#1f6feb;color:#fff;border:0;border-radius:.4rem}
-.empty{color:#666;padding:2rem 0}
-.err{color:#c00}.ok{color:#0a7}
+.tag{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim)}
+.derived{color:var(--text-dim);background:var(--paper-2);border:1px solid var(--rule);
+  font-size:.75rem;padding:.15rem .4rem;border-radius:.25rem;font-family:var(--mono)}
+textarea{width:100%;box-sizing:border-box;font:inherit;padding:.6rem;min-height:7rem;
+  border:1px solid var(--rule);border-radius:.4rem;background:var(--paper);color:var(--text)}
+button{font-size:1rem;padding:.6rem 1rem;background:var(--ink-2);color:var(--btn-ink-fg);border:0;
+  border-radius:.4rem;cursor:pointer;font-weight:600}
+textarea:focus-visible,button:focus-visible{outline:2px solid var(--ink-2);outline-offset:1px}
+.empty{color:var(--text-dim);padding:2rem 0}
+.err{color:var(--text);font-weight:600}
+.err::before{content:"\\26A0  "}
+.ok{color:var(--text-dim)}
+.ok::before{content:"\\2713  "}
 </style></head><body>
 ${body}
 </body></html>`;
