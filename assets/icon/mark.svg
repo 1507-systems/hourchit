@@ -1,0 +1,23 @@
+<!--
+  HourChit brand mark: a punched-tag silhouette (rounded rect, one corner
+  cut) with a punched circular hole near the top. The hole is the brand
+  device -- filled means "on the clock" -- and this app-icon variant always
+  shows it filled with amber. Two ruled "hours" lines sit near the bottom at
+  reduced opacity. Geometry is verbatim from the approved mockup; do not
+  redraw or reinterpret it. See tile.svg for the composited app-icon square
+  that positions this mark on the ink background, and
+  android-adaptive-fg.svg for the transparent-canvas variant used in
+  Android's adaptive icon.
+-->
+<svg viewBox="0 0 100 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <mask id="hole">
+      <rect width="100" height="128" fill="#fff"/>
+      <circle cx="50" cy="42" r="13" fill="#000"/>
+    </mask>
+  </defs>
+  <path d="M30 4 H92 a4 4 0 0 1 4 4 V120 a4 4 0 0 1 -4 4 H8 a4 4 0 0 1 -4 -4 V30 Z"
+        fill="#E8952A" mask="url(#hole)"/>
+  <rect x="22" y="76" width="56" height="6" rx="3" fill="#15181E" opacity="0.30"/>
+  <rect x="22" y="94" width="38" height="6" rx="3" fill="#15181E" opacity="0.30"/>
+</svg>

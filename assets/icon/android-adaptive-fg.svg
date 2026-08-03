@@ -1,0 +1,19 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Mark alone, transparent canvas, scaled to ~66% of tile height and
+       centered: Android's adaptive-icon safe zone (roughly the center 66%
+       of the 108dp canvas survives every OEM mask shape: circle, squircle,
+       rounded square). Geometry inside the g element is the verbatim mark,
+       untouched. -->
+  <g transform="translate(124,87.04) scale(2.64)">
+    <defs>
+      <mask id="hole">
+        <rect width="100" height="128" fill="#fff"/>
+        <circle cx="50" cy="42" r="13" fill="#000"/>
+      </mask>
+    </defs>
+    <path d="M30 4 H92 a4 4 0 0 1 4 4 V120 a4 4 0 0 1 -4 4 H8 a4 4 0 0 1 -4 -4 V30 Z"
+          fill="#E8952A" mask="url(#hole)"/>
+    <rect x="22" y="76" width="56" height="6" rx="3" fill="#15181E" opacity="0.30"/>
+    <rect x="22" y="94" width="38" height="6" rx="3" fill="#15181E" opacity="0.30"/>
+  </g>
+</svg>

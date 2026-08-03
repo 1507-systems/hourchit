@@ -1,0 +1,8 @@
+<!--
+  Android adaptive-icon background layer: solid ink fill, no mark. Pair with
+  android-adaptive-fg.svg (the foreground layer, mark only). The OS composites
+  both layers itself and applies its own mask shape at render time.
+-->
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" fill="#15181E"/>
+</svg>
