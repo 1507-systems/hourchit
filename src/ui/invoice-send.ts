@@ -77,7 +77,7 @@ ${
     <tr><td>To</td><td class="num"><strong>${esc(v.to)}</strong></td></tr>
     <tr><td>From</td><td class="num">${esc(v.from)}</td></tr>
     <tr><td>Subject</td><td class="num">${esc(v.subject)}</td></tr>
-    <tr><td>Amount</td><td class="num"><strong>${esc(money)}</strong></td></tr>
+    <tr><td>Amount</td><td class="num"><strong class="amt-onpaper">${esc(money)}</strong></td></tr>
   </tbody></table>
   <p class="muted">The invoice is in the body of the email rather than behind a link or an
     attachment, so the recipient can read the whole thing without clicking anything. An unexpected
