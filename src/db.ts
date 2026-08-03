@@ -716,7 +716,7 @@ export async function invoiceDelivery(
   const row = await db(env)
     .prepare(
       `SELECT m.delivery_status AS status, m.delivery_at AS at, m.delivery_detail AS detail,
-              m.to_addrs AS recipients, m.created_at AS sentAt
+              m.to_addrs AS recipients, m.received_at AS sentAt
          FROM messages m
          JOIN threads t ON t.id = m.thread_id
          JOIN invoices i ON i.customer_id = t.customer_id

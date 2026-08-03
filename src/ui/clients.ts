@@ -24,18 +24,26 @@ function money(cents: number): string {
   return formatCents(cents, 'USD');
 }
 
-export function renderClients(business: string, customers: Customer[], flash = ''): string {
+export function renderClients(
+  business: string,
+  customers: Customer[],
+  workdriveEnabled: boolean,
+  flash = '',
+): string {
   const rows = customers.length
     ? customers
         .map(
           (c) => `<tr${c.archived ? ' class="muted"' : ''}>
       <td><a href="/clients/${c.id}">${esc(c.name)}</a>${c.archived ? ' <span class="tag">archived</span>' : ''}</td>
-      <td class="muted">${esc(c.email)}</td>
-      <td class="muted">${c.workdrive_folder_id ? 'filed' : '—'}</td>
+      <td class="muted">${esc(c.email)}</td>${
+        workdriveEnabled
+          ? `\n      <td class="muted">${c.workdrive_folder_id ? 'filed' : '—'}</td>`
+          : ''
+      }
     </tr>`,
         )
         .join('')
-    : '<tr><td colspan="3" class="muted">No clients yet.</td></tr>';
+    : `<tr><td colspan="${workdriveEnabled ? 3 : 2}" class="muted">No clients yet.</td></tr>`;
 
   return layout({
     title: 'Clients',
@@ -43,7 +51,7 @@ export function renderClients(business: string, customers: Customer[], flash = '
     body: `<h1>Clients</h1>
 ${flash}
 <div class="card">
-  <table><thead><tr><th>Name</th><th>Billing email</th><th>WorkDrive</th></tr></thead>
+  <table><thead><tr><th>Name</th><th>Billing email</th>${workdriveEnabled ? '<th>WorkDrive</th>' : ''}</tr></thead>
   <tbody>${rows}</tbody></table>
 </div>
 
@@ -64,6 +72,7 @@ export function renderClient(
   customer: Customer,
   tasks: Task[],
   routes: Route[],
+  workdriveEnabled: boolean,
   flash = '',
 ): string {
   const taskRows = tasks.length
@@ -110,9 +119,13 @@ ${flash}
     <label>Name<input name="name" value="${esc(customer.name)}" required></label>
     <label>Address<textarea name="address" rows="3">${esc(customer.address)}</textarea></label>
     <label>Billing email<input name="email" type="email" value="${esc(customer.email)}"></label>
-    <label>WorkDrive folder id
+    ${
+      workdriveEnabled
+        ? `<label>WorkDrive folder id
       <input name="workdriveFolderId" value="${esc(customer.workdrive_folder_id ?? '')}"
-             placeholder="where this client's documents get filed"></label>
+             placeholder="where this client's documents get filed"></label>`
+        : ''
+    }
     <label>Rate-change notice period, days — from this client's SOW
       <input name="noticeDays" type="number" min="0" step="1"
              value="${customer.notice_days === null ? '' : customer.notice_days}"

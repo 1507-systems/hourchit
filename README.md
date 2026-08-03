@@ -11,6 +11,10 @@ run and moves between Cloudflare accounts without a code change.
 > settings are configuration rather than a settings screen. If that doesn't fit,
 > it will not fit later either; see [`SECURITY.md`](SECURITY.md).
 
+> **Don't want to run this yourself?** [1507 Systems](https://hourchit.app) hosts
+> it for you — $15/month flat, no tiers. Take the code and self-host any time,
+> free, no lock-in; that's the whole reason the core is MIT-licensed.
+
 ## What it does
 
 - **Customers and tasks**: modelled many-to-many from the start; a single-client
@@ -127,10 +131,10 @@ npm run deploy
   redeploy, not a form.
 - Distance is the stored route mileage. There's a `DistanceProvider` seam in
   `src/domain/mileage.ts` sized for a Google Maps Distance Matrix lookup.
-- Email invoice delivery is stubbed; `/invoices/:id/send` marks an invoice sent
-  without sending anything.
 - Domain logic is unit-tested; there are no integration tests against the
-  Workers runtime yet. The app is smoke-tested by hand on `wrangler dev`.
+  Workers runtime yet — nothing runs real SQL against the real D1 schema, so a
+  wrong column name in a query can pass `npm test` and still break in
+  production. The app is otherwise smoke-tested by hand on `wrangler dev`.
 
 ## Contributing
 
