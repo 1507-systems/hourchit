@@ -140,7 +140,7 @@ describe('POST /invoices/:id/email', () => {
   it('refuses when the client has no billing address, rather than sending to nowhere', async () => {
     const mail = recordingMail();
     const { e } = env(
-      { EMAIL: mail.binding as never, HOSTED_MAIL_DOMAIN: 'hosted.hourchit.app' },
+      { EMAIL: mail.binding as never, TENANT_MAIL_DOMAIN: 'core.hourchit.app' },
       { customer: { ...CUSTOMER, email: '  ' } },
     );
     const res = await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
@@ -202,9 +202,14 @@ describe('POST /invoices/:id/email', () => {
     // Matt. Sending it from noreply@hourchit.app puts a vendor the client has
     // never heard of on a demand for money.
     const mail = recordingMail();
-    const { e } = env({ EMAIL: mail.binding as never, BROWSER: fakeBrowser() as never, TENANT_PROFILE: 'core' });
+    const { e } = env({
+      EMAIL: mail.binding as never,
+      BROWSER: fakeBrowser() as never,
+      TENANT_PROFILE: 'core',
+      TENANT_MAIL_DOMAIN: 'core.hourchit.app',
+    });
     await app.request('/invoices/8/email', { method: 'POST', ...AUTH }, e);
-    expect(mail.sent[0].from).toBe('core@hosted.hourchit.app');
+    expect(mail.sent[0].from).toBe('billing@core.hourchit.app');
     expect(mail.sent[0].from).not.toContain('noreply@');
   });
 

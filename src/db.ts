@@ -693,3 +693,48 @@ export async function latestInvoicedWorkAt(env: Env): Promise<string | null> {
     .first<{ latest: string | null }>();
   return row?.latest ?? null;
 }
+
+/**
+ * What happened to the email that carried an invoice.
+ *
+ * Joins invoice -> its outbound message by the subject we sent under, which is
+ * the same key openOutboundThread threads on. Returns null when the invoice has
+ * not been emailed, which is a different thing from "sent but no report yet" --
+ * the UI needs both states and conflating them would show a delivery status for
+ * an invoice that was handed over on paper.
+ */
+export async function invoiceDelivery(
+  env: Env,
+  invoiceId: number,
+): Promise<{
+  status: string;
+  at: string | null;
+  detail: string;
+  recipient: string;
+  sentAt: string;
+} | null> {
+  const row = await db(env)
+    .prepare(
+      `SELECT m.delivery_status AS status, m.delivery_at AS at, m.delivery_detail AS detail,
+              m.to_addrs AS recipients, m.created_at AS sentAt
+         FROM messages m
+         JOIN threads t ON t.id = m.thread_id
+         JOIN invoices i ON i.customer_id = t.customer_id
+        WHERE i.id = ? AND m.direction = 'outbound' AND m.subject LIKE ?
+        ORDER BY m.id DESC LIMIT 1`,
+    )
+    .bind(invoiceId, `%${(await getInvoice(env, invoiceId))?.number ?? ''}%`)
+    .first<{ status: string; at: string | null; detail: string; recipients: string; sentAt: string }>();
+
+  if (!row) return null;
+
+  let recipient = '';
+  try {
+    const parsed = JSON.parse(row.recipients) as string[];
+    recipient = parsed[0] ?? '';
+  } catch {
+    recipient = row.recipients;
+  }
+
+  return { status: row.status, at: row.at, detail: row.detail, recipient, sentAt: row.sentAt };
+}

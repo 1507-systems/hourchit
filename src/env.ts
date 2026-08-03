@@ -13,11 +13,24 @@ export interface Env {
    */
   ACCESS_TOKEN?: string;
   /**
-   * Domain that tenant mail arrives on. Addresses are
-   * <TENANT_PROFILE>@<HOSTED_MAIL_DOMAIN>. Defaulted in code so a tenant config
-   * that omits it still rejects foreign mail rather than accepting everything.
+   * This tenant's OWN mail domain, e.g. `tarnsby.hourchit.app`.
+   *
+   * Replaces the shared `hosted.hourchit.app`, where the tenant was the LOCAL
+   * PART. Now the DOMAIN identifies the tenant and the local part is a mailbox
+   * -- billing@, hello@ -- which is what a business's mail actually looks like.
+   *
+   * The move was forced by delivery events: a Cloudflare Email Sending event
+   * subscription is scoped to one sending DOMAIN, so a shared domain would put
+   * every tenant's recipients and subject lines on one queue. It turned out to
+   * be the better shape anyway, because a shared sending domain also means a
+   * SHARED SENDER REPUTATION -- one tenant's spam complaints would degrade
+   * deliverability for every other tenant, and for an invoicing product an
+   * invoice in the junk folder is the whole failure.
+   *
+   * REQUIRED IN PRACTICE. There is no default: a wrong guess here would either
+   * reject the tenant's real mail or, worse, accept another tenant's.
    */
-  HOSTED_MAIL_DOMAIN?: string;
+  TENANT_MAIL_DOMAIN?: string;
   /** R2 bucket for raw MIME and attachment bytes. Optional: without it, mail is
    * still stored, minus the raw copy. */
   MAIL_RAW?: R2Bucket;

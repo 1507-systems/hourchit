@@ -6,7 +6,7 @@ import {
   parseReferences,
   resolveSender,
   subjectKey,
-  tenantFromAddress,
+  mailboxFor,
 } from '../src/domain/inbound';
 
 describe('bareAddress', () => {
@@ -33,22 +33,40 @@ describe('addressList', () => {
   });
 });
 
-describe('tenantFromAddress', () => {
-  const D = 'hosted.hourchit.app';
-  it('extracts the tenant', () => {
-    expect(tenantFromAddress('mattsav@hosted.hourchit.app', D)).toBe('mattsav');
+describe('mailboxFor', () => {
+  const D = 'tarnsby.hourchit.app';
+
+  it('names the mailbox an address is for', () => {
+    // The DOMAIN says which tenant; the local part is a mailbox, which is what
+    // a business's mail actually looks like.
+    expect(mailboxFor('billing@tarnsby.hourchit.app', D)).toBe('billing');
+    expect(mailboxFor('hello@tarnsby.hourchit.app', D)).toBe('hello');
   });
-  it('strips subaddressing, which Cloudflare delivers to the base rule', () => {
-    expect(tenantFromAddress('mattsav+booking@hosted.hourchit.app', D)).toBe('mattsav');
+
+  it('strips subaddressing, which is context rather than identity', () => {
+    // Cloudflare delivers billing+anything@ to the billing@ rule.
+    expect(mailboxFor('billing+inv0008@tarnsby.hourchit.app', D)).toBe('billing');
   });
-  it('rejects another domain, so one tenant cannot be addressed via another zone', () => {
-    expect(tenantFromAddress('mattsav@evil.example', D)).toBeNull();
+
+  it('is case and display-name insensitive', () => {
+    expect(mailboxFor('"Tarnsby A/V" <Billing@Tarnsby.HourChit.App>', D)).toBe('billing');
   });
-  it('rejects the apex, which is HourChit\'s own mail and not a tenant', () => {
-    expect(tenantFromAddress('billing@hourchit.app', D)).toBeNull();
+
+  it('REJECTS another tenant\'s domain', () => {
+    // The failure that matters: one Worker per tenant, one domain per tenant.
+    // Mail for another domain arriving here is a misrouted rule or a probe, and
+    // storing it would put one client's correspondence in another's database.
+    expect(mailboxFor('billing@othertenant.hourchit.app', D)).toBeNull();
+    expect(mailboxFor('billing@hourchit.app', D)).toBeNull();
   });
-  it('is case insensitive on the domain', () => {
-    expect(tenantFromAddress('MattsAV@Hosted.HourChit.App', D)).toBe('mattsav');
+
+  it('rejects the retired shared-domain form', () => {
+    expect(mailboxFor('tarnsby@hosted.hourchit.app', D)).toBeNull();
+  });
+
+  it('rejects malformed input rather than guessing', () => {
+    expect(mailboxFor('not-an-address', D)).toBeNull();
+    expect(mailboxFor('@tarnsby.hourchit.app', D)).toBeNull();
   });
 });
 
