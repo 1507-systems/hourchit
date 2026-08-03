@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono';
 import { handleEmail } from './email';
 import { handleQueue } from './queue';
 import { mailboxFor } from './domain/inbound';
+import { FAVICON_32_PNG_BASE64, FAVICON_48_PNG_BASE64, faviconResponse } from './favicon';
 import type { Env } from './env';
 // Written by scripts/generate-build-info.mjs. Run `npm run codegen` if your
 // editor flags this as missing.
@@ -162,6 +163,17 @@ app.get('/login/token', (c) => tokenLoginPage(c));
 app.post('/login/token', (c) => handleTokenLogin(c));
 
 app.get('/logout', (c) => handleLogout(c));
+
+// Favicon: static, identical for every tenant, unauthenticated for the same
+// reason /health is -- a browser asks for it before any login ever happens.
+app.get('/favicon-32.png', () => faviconResponse(FAVICON_32_PNG_BASE64));
+app.get('/favicon-48.png', () => faviconResponse(FAVICON_48_PNG_BASE64));
+// Some user agents request this well-known path directly, regardless of the
+// <link rel="icon"> tags in <head>. This serves a PNG at the conventional
+// .ico URL rather than a true multi-resolution ICO container -- rsvg-convert
+// (this repo's only SVG tool) can't produce one, and nothing in this repo's
+// existing head/meta tags expects real favicon.ico semantics.
+app.get('/favicon.ico', () => faviconResponse(FAVICON_32_PNG_BASE64));
 
 // Everything below requires the shared-secret cookie.
 app.use('*', requireAuth);

@@ -85,6 +85,8 @@ export function renderInvoice(args: {
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(invoice.number || `Invoice #${invoice.id}`)}</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">
 <style>
   body{font-family:system-ui,-apple-system,sans-serif;color:#1f2328;max-width:48rem;margin:1.5rem auto;padding:0 1rem}
   .top{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem}

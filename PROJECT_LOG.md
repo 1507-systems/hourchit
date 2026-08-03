@@ -2,6 +2,44 @@
 
 Running history of decisions and significant changes. Newest first.
 
+## 2026-08-03: App-icon set and a real favicon
+
+Exported the approved brand mark (a punched-tag silhouette with a filled
+circular hole -- the "on the clock" device) to actual image assets, and wired
+a favicon into every page the app renders.
+
+- **Source SVGs and every exported PNG live under `assets/icon/`**: the mark
+  alone (`mark.svg`), the composited ink+amber app-icon square (`tile.svg`),
+  and the Android adaptive-icon pair (`android-adaptive-bg.svg` /
+  `android-adaptive-fg.svg`), plus rendered PNGs in `ios/` (1024 down to 29,
+  flat squares, no alpha -- Apple applies its own corner rounding),
+  `android/` (a 512 standard icon plus the adaptive background/foreground
+  pair, foreground kept transparent and scaled to roughly Android's 66% safe
+  zone so OEM mask shapes don't clip it), and `favicon/` (32 and 48). Every
+  size was verified against spec with `sips -g pixelWidth -g pixelHeight -g
+  hasAlpha`, not just trusted from a silent `rsvg-convert` exit code.
+- **No Cloudflare Workers static-assets directory exists in this repo**
+  (`wrangler.jsonc` has no `assets` key), and adding one changes request
+  routing for every path by default plus would need mirroring into each
+  tenant's separate wrangler config. For two small, tenant-invariant PNGs,
+  the smaller move was to embed them as base64 in `src/favicon.ts` and serve
+  them from ordinary routes -- the same pattern this repo already uses for
+  the generated invoice PDF (`/invoices/:id/pdf`).
+- **`/favicon-32.png`, `/favicon-48.png`, and `/favicon.ico`** are registered
+  before the `requireAuth` gate in `src/index.ts`, unauthenticated for the
+  same reason `/health` is: a browser asks for these before any login
+  happens. `/favicon.ico` serves the 32px PNG rather than a true
+  multi-resolution ICO container -- rsvg-convert can't produce one, and
+  nothing in this repo's existing head/meta tags expected real `.ico`
+  semantics (checked; there was none before this).
+- **`<link rel="icon">` tags added to every `<head>` this app emits**:
+  `src/ui/layout.ts` (the main app shell), `src/ui/invoice.ts`, `src/ui/mail.ts`,
+  and `src/auth.ts` (the login pages, which is the very first thing a browser
+  tab shows).
+- No `manifest.json` yet -- the full icon set is committed and ready for
+  whenever a PWA manifest or native wrapper needs it, but inventing one now
+  would mean guessing at fields (short_name, description) nobody has decided.
+
 ## 2026-07-28: Open-source split, security fix, tenant rename
 
 **Renamed `stint` → `hourchit`.** A namespace search found `stint` taken on npm,

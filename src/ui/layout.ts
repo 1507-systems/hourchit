@@ -66,6 +66,8 @@ export function layout(opts: { title: string; business: string; body: string }):
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(opts.title)} · HourChit</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">
 <style>${STYLE}</style></head>
 <body>
 <header>
