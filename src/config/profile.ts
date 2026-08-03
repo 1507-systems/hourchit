@@ -97,6 +97,21 @@ export interface ProfileSettings {
    * tenant, and a Worker's own zone is wherever the request happened to land.
    */
   timezone: string;
+
+  /**
+   * Show the WorkDrive-folder field on a client record, and the filed/— status
+   * column on the client list.
+   *
+   * OPTIONAL, default false/absent. This is not a feature the hosted product
+   * offers -- it exists because one specific tenant already files documents in
+   * their own Zoho WorkDrive by hand and wanted the folder id recorded
+   * somewhere. Leaving it off for every other tenant is the point: a new
+   * customer's client page should not show a field for an integration nobody
+   * has set up for them. The `workdrive_folder_id` column and this code stay
+   * in core (documented, not deleted) so the one tenant that uses it keeps
+   * working, and so it is ready if this becomes a real offered feature later.
+   */
+  workdriveEnabled?: boolean;
 }
 
 export interface SeedCustomer {
