@@ -731,7 +731,14 @@ function noticeDaysFromForm(raw: unknown): number | null {
 
 app.get('/clients', async (c) => {
   const profile = loadProfile(c.env.TENANT_PROFILE);
-  return c.html(renderClients(profile.business.name, await listAllCustomers(c.env), flashHtml(c)));
+  return c.html(
+    renderClients(
+      profile.business.name,
+      await listAllCustomers(c.env),
+      profile.settings.workdriveEnabled === true,
+      flashHtml(c),
+    ),
+  );
 });
 
 app.post('/clients', async (c) => {
@@ -757,21 +764,33 @@ app.get('/clients/:id', async (c) => {
       customer,
       await listAllTasks(c.env, id),
       await listAllRoutes(c.env),
+      profile.settings.workdriveEnabled === true,
       flashHtml(c),
     ),
   );
 });
 
 app.post('/clients/:id', async (c) => {
+  const profile = loadProfile(c.env.TENANT_PROFILE);
   const id = Number(c.req.param('id'));
   const b = await c.req.parseBody();
-  const folder = String(b.workdriveFolderId ?? '').trim();
+  const customer = await getCustomer(c.env, id);
+  if (!customer) return c.notFound();
+  // The field isn't rendered at all when this tenant doesn't have WorkDrive
+  // enabled, so its absence from the form must not be read as "clear it" --
+  // that would silently erase a value nobody was shown a way to change.
+  const workdriveFolderId = profile.settings.workdriveEnabled
+    ? (() => {
+        const folder = String(b.workdriveFolderId ?? '').trim();
+        return folder.length > 0 ? folder : null;
+      })()
+    : customer.workdrive_folder_id;
   await updateCustomer(c.env, id, {
     name: String(b.name ?? '').trim(),
     address: String(b.address ?? ''),
     email: String(b.email ?? ''),
     notes: String(b.notes ?? ''),
-    workdriveFolderId: folder.length > 0 ? folder : null,
+    workdriveFolderId,
     // Blank means UNSTATED, not zero. Coercing an empty field to 0 would
     // record that this client agreed to no notice at all, which is a term
     // nobody negotiated -- and it would then shorten the floor for every other
