@@ -1,0 +1,28 @@
+node_modules/
+.wrangler/
+dist/
+.dev.vars
+*.log
+.DS_Store
+seed/.generated.sql
+
+# Generated from profiles/*.json at build time (npm run profiles).
+src/config/profiles.generated.ts
+
+# Real tenant profiles carry client PII (names, addresses, rates) and live in
+# the private hourchit-tenants repo, copied in at deploy time. This repo is
+# public: only the generic core and the documented example may be committed.
+profiles/*.json
+!profiles/core.json
+!profiles/example.json
+
+# Tenant wrangler configs live in the private tenants repo now and are no longer
+# copied in here. Kept as a backstop: a client's worker name and D1 id must not
+# land in a public repo because someone deployed the old way out of habit.
+wrangler.tenant.*.jsonc
+
+# Local WIP marker for concurrent Claude Code sessions.
+.reconvoy-skip
+
+# Stamped from the current commit at build time.
+src/build-info.generated.ts
