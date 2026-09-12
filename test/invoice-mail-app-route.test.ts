@@ -120,6 +120,15 @@ describe('GET /invoices/:id/mail-app', () => {
     await app.request('/invoices/8/mail-app', { method: 'GET', ...AUTH }, e);
     expect(writes.some((w) => /UPDATE invoices SET status = 'sent'/.test(w))).toBe(false);
   });
+
+  it('carries the draft as hidden fields for the native shell to read, and calls window.native.composeMail', async () => {
+    const { e } = env();
+    const res = await app.request('/invoices/8/mail-app', { method: 'GET', ...AUTH }, e);
+    const html = await res.text();
+    expect(html).toContain('id="mailAppTo"');
+    expect(html).toContain('id="mailAppPdfUrl"');
+    expect(html).toContain('native.composeMail(');
+  });
 });
 
 describe('confirming a mail-app send', () => {

@@ -228,7 +228,7 @@ ${BRAND_TOKENS_LIGHT}
         : customer.invoice_delivery_mode === 'hosted'
           ? `<a href="/invoices/${invoice.id}/email" style="text-decoration:none"><button>Email to client</button></a>`
           : customer.invoice_delivery_mode === 'mail_app'
-            ? `<a href="/invoices/${invoice.id}/mail-app" style="text-decoration:none"><button>Send with your mail app</button></a>`
+            ? `<a href="/invoices/${invoice.id}/mail-app" style="text-decoration:none"><button>Compose invoice email</button></a>`
             : ''
     }
     <a href="/invoices/${invoice.id}/pdf" target="_blank" style="text-decoration:none">

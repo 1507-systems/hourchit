@@ -64,7 +64,7 @@ describe('renderInvoice: action visibility per delivery mode', () => {
   it('mail_app shows the mail-app handoff and not the hosted-send action', () => {
     const html = invoiceHtml('mail_app');
     expect(html).toContain('/invoices/1/mail-app');
-    expect(html).toContain('Send with your mail app');
+    expect(html).toContain('Compose invoice email');
     expect(html).not.toContain('/invoices/1/email');
   });
 
