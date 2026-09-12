@@ -120,14 +120,39 @@ describe('GET /invoices/:id/mail-app', () => {
     await app.request('/invoices/8/mail-app', { method: 'GET', ...AUTH }, e);
     expect(writes.some((w) => /UPDATE invoices SET status = 'sent'/.test(w))).toBe(false);
   });
+});
 
-  it('carries the draft as hidden fields for the native shell to read, and calls window.native.composeMail', async () => {
+describe('GET /invoices/:id/mail-app/compose', () => {
+  it('returns the full hosted-quality composition for a client in mail_app mode', async () => {
     const { e } = env();
-    const res = await app.request('/invoices/8/mail-app', { method: 'GET', ...AUTH }, e);
-    const html = await res.text();
-    expect(html).toContain('id="mailAppTo"');
-    expect(html).toContain('id="mailAppPdfUrl"');
-    expect(html).toContain('native.composeMail(');
+    const res = await app.request('/invoices/8/mail-app/compose', { method: 'GET', ...AUTH }, e);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { to: string; subject: string; html: string; pdfUrl: string; pdfFilename: string };
+    expect(body.to).toBe('client@example.invalid');
+    expect(body.subject).toContain('TBY-0008');
+    expect(body.html).toContain('Event Tech Management');
+    expect(body.html).toContain('Total due'); // the line-item table, not the narrow mailto draft
+    expect(body.pdfUrl).toBe('/invoices/8/pdf');
+    expect(body.pdfFilename).toContain('TBY-0008');
+  });
+
+  it('never mentions HourChit -- this is not sent over HourChit transport', async () => {
+    const { e } = env();
+    const res = await app.request('/invoices/8/mail-app/compose', { method: 'GET', ...AUTH }, e);
+    const body = (await res.json()) as { html: string };
+    expect(body.html).not.toContain('HourChit');
+  });
+
+  it('refuses with 403 for a client in hosted mode', async () => {
+    const { e } = env({}, { customer: { ...CUSTOMER, invoice_delivery_mode: 'hosted' } });
+    const res = await app.request('/invoices/8/mail-app/compose', { method: 'GET', ...AUTH }, e);
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses with 403 for a client in disabled mode', async () => {
+    const { e } = env({}, { customer: { ...CUSTOMER, invoice_delivery_mode: 'disabled' } });
+    const res = await app.request('/invoices/8/mail-app/compose', { method: 'GET', ...AUTH }, e);
+    expect(res.status).toBe(403);
   });
 });
 
