@@ -228,7 +228,7 @@ ${BRAND_TOKENS_LIGHT}
         : customer.invoice_delivery_mode === 'hosted'
           ? `<a href="/invoices/${invoice.id}/email" style="text-decoration:none"><button>Email to client</button></a>`
           : customer.invoice_delivery_mode === 'mail_app'
-            ? `<a href="/invoices/${invoice.id}/mail-app" style="text-decoration:none"><button>Compose invoice email</button></a>`
+            ? `<a id="composeInvoiceEmail" href="/invoices/${invoice.id}/mail-app" style="text-decoration:none"><button>Compose invoice email</button></a>`
             : ''
     }
     <a href="/invoices/${invoice.id}/pdf" target="_blank" style="text-decoration:none">
@@ -259,6 +259,54 @@ ${BRAND_TOKENS_LIGHT}
         : ''
     }
   </div>`}
+
+  ${
+    /* The native iOS shell must never navigate to /invoices/:id/mail-app at
+       all -- that page is a browser-only best effort (no attachment, no way
+       to confirm anything sent). Inside the shell, intercept the same button
+       and go straight to the real thing: fetch the hosted-quality
+       composition and the PDF, then hand both to the native mail composer
+       with the PDF genuinely attached. See invoice-mail-app.ts for why the
+       fallback page has none of this. */
+    forPrint ||
+    (invoice.status !== 'draft' && invoice.status !== 'sent') ||
+    customer.invoice_delivery_mode !== 'mail_app'
+      ? ''
+      : `<script>
+(function () {
+  var native = window.native;
+  if (!native || !native.capabilities || !native.capabilities.mailCompose) return;
+
+  var link = document.getElementById('composeInvoiceEmail');
+  if (!link) return;
+
+  link.addEventListener('click', function (event) {
+    event.preventDefault();
+    fetch('/invoices/${invoice.id}/mail-app/compose')
+      .then(function (r) { return r.json(); })
+      .then(function (draft) {
+        return fetch(draft.pdfUrl)
+          .then(function (r) { return r.blob(); })
+          .then(function (blob) {
+            var reader = new FileReader();
+            reader.onloadend = function () {
+              var base64 = String(reader.result).split(',')[1] || '';
+              native.composeMail({
+                to: draft.to,
+                subject: draft.subject,
+                body: draft.html,
+                bodyIsHtml: true,
+                pdfBase64: base64,
+                pdfFilename: draft.pdfFilename,
+              });
+            };
+            reader.readAsDataURL(blob);
+          });
+      });
+  });
+})();
+</script>`
+  }
 </body></html>`;
 }
 

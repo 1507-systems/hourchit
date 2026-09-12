@@ -1355,6 +1355,41 @@ app.get('/invoices/:id/mail-app', async (c) => {
   );
 });
 
+/**
+ * What the native iOS shell hands to `MFMailComposeViewController` for a
+ * mail_app client -- the SAME composition a hosted client's email would get
+ * (full line items, total, the shared subject line), not the narrower
+ * mailto:-safe draft above. A native compose sheet has no mailto: length
+ * limit and can attach the PDF directly, so the reason that draft is
+ * deliberately narrow does not apply here; the whole point of building this
+ * bridge was for a mail_app client to see an invoice indistinguishable from
+ * what hosted delivery sends, just carried by the operator's own mail
+ * account instead of HourChit's.
+ *
+ * `viaHourChit` is forced false: this is explicitly NOT sent over HourChit's
+ * transport, so the sent-on-behalf-of disclosure that only makes sense for
+ * hosted mail would be inaccurate here.
+ */
+app.get('/invoices/:id/mail-app/compose', async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await buildInvoiceComposition(c.env, id);
+  if (!ctx) return c.notFound();
+  if (ctx.customer?.invoice_delivery_mode !== 'mail_app') {
+    return c.text('This client does not use the mail-app delivery mode.', 403);
+  }
+  if (ctx.invoice.status !== 'draft' && ctx.invoice.status !== 'sent') {
+    return c.text(`A ${ctx.invoice.status} invoice cannot be sent.`, 409);
+  }
+
+  return c.json({
+    to: ctx.to,
+    subject: ctx.subject,
+    html: invoiceEmailHtml({ ...ctx.view, viaHourChit: false }),
+    pdfUrl: `/invoices/${id}/pdf`,
+    pdfFilename: invoicePdfFilename(ctx.invoice.number),
+  });
+});
+
 function readFlash(ok?: string, err?: string) {
   if (ok) return { kind: 'ok' as const, text: ok };
   if (err) return { kind: 'err' as const, text: err };

@@ -68,6 +68,28 @@ describe('renderInvoice: action visibility per delivery mode', () => {
     expect(html).not.toContain('/invoices/1/email');
   });
 
+  it('mail_app wires the button to intercept for the native shell, calling window.native.composeMail with the full hosted-quality body', () => {
+    const html = invoiceHtml('mail_app');
+    expect(html).toContain('id="composeInvoiceEmail"');
+    expect(html).toContain('/invoices/1/mail-app/compose');
+    expect(html).toContain('native.composeMail(');
+    expect(html).toContain('bodyIsHtml: true');
+  });
+
+  it('hosted and disabled never carry the native mail-app intercept script', () => {
+    for (const mode of ['hosted', 'disabled'] as const) {
+      const html = invoiceHtml(mode);
+      expect(html).not.toContain('composeInvoiceEmail');
+      expect(html).not.toContain('mail-app/compose');
+    }
+  });
+
+  it('print output never carries the native mail-app intercept script, even in mail_app mode', () => {
+    const html = invoiceHtml('mail_app', true);
+    expect(html).not.toContain('composeInvoiceEmail');
+    expect(html).not.toContain('mail-app/compose');
+  });
+
   it('disabled shows neither send action, and states the canonical reason', () => {
     const html = invoiceHtml('disabled');
     expect(html).not.toContain('/invoices/1/email');
