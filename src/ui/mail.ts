@@ -1,5 +1,11 @@
 import { esc } from './html';
-import { APP_ICON_LINKS, BRAND_TOKENS } from './theme';
+import {
+  APP_ICON_LINKS,
+  BRAND_FOOTER_STYLE,
+  BRAND_TOKENS,
+  WORDMARK_STYLE,
+  brandFooter,
+} from './theme';
 
 /**
  * The mail views.
@@ -44,6 +50,8 @@ ${APP_ICON_LINKS}
 <title>${esc(title)} · HourChit</title>
 <style>
 ${BRAND_TOKENS}
+${WORDMARK_STYLE}
+${BRAND_FOOTER_STYLE}
 body{font-family:var(--sans);background:var(--paper);color:var(--text);
   max-width:44rem;margin:2rem auto;padding:0 1rem}
 a{color:var(--text);text-decoration:underline}
@@ -72,6 +80,7 @@ textarea:focus-visible,button:focus-visible{outline:2px solid var(--ink-2);outli
 .ok::before{content:"\\2713  "}
 </style></head><body>
 ${body}
+${brandFooter()}
 </body></html>`;
 }
 

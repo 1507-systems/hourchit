@@ -2,7 +2,14 @@ import type { Context, Next } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env } from './env';
 import { esc } from './ui/html';
-import { APP_ICON_LINKS, BRAND_TOKENS, WORDMARK_STYLE, wordmark } from './ui/theme';
+import {
+  APP_ICON_LINKS,
+  BRAND_FOOTER_STYLE,
+  BRAND_TOKENS,
+  WORDMARK_STYLE,
+  brandFooter,
+  wordmark,
+} from './ui/theme';
 import { loadProfile } from './config/profiles';
 import { generateCode, isAllowedLogin, normalizeEmail } from './domain/otp';
 import { isRateLimited, redeemCode, revokeSession, sessionEmail, storeCode } from './sessions';
@@ -112,6 +119,7 @@ ${APP_ICON_LINKS}
 <style>
 ${BRAND_TOKENS}
 ${WORDMARK_STYLE}
+${BRAND_FOOTER_STYLE}
 body{font-family:var(--sans);background:var(--paper);color:var(--text);
   max-width:22rem;margin:4rem auto;padding:0 1rem}
 h1{margin:0 0 1.6rem}
@@ -132,6 +140,7 @@ input[name=code]{font-size:1.6rem;letter-spacing:.4em;text-align:center;font-fam
 </style>
 </head><body><h1>${wordmark()}</h1>
 ${body}
+${brandFooter()}
 </body></html>`;
 }
 
