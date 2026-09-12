@@ -4,14 +4,18 @@ import type { Invoice } from '../db';
 import type { MailAppDraft } from '../mail/invoice-composition';
 
 /**
- * The web fallback for "send with your mail app".
+ * "Send with your mail app": composes the invoice email in the operator's own
+ * mail client rather than HourChit sending it.
  *
- * A browser cannot attach a file to a mailto: draft and cannot confirm
- * anything the operator's own mail app does after the draft opens, so this
- * page does the two things it honestly can: open a pre-filled draft, and
- * hand over the PDF to attach by hand. It never claims more than that, and
- * it never marks the invoice sent on its own -- only the operator saying so
- * does that, because nothing here can detect whether the mail actually went.
+ * Inside the native shell, the page hands the draft and the PDF (fetched as
+ * base64) to `window.native.composeMail`, which presents the system mail
+ * composer with the PDF genuinely attached -- see `NativeBridgeScript` and
+ * `TenantWebView` in the hourchit-ios repo. A plain browser cannot attach a
+ * file to a mailto: draft and cannot confirm anything the mail app does
+ * afterward, so there the page instead does the two things it honestly can:
+ * open a pre-filled draft, and hand over the PDF to attach by hand. Neither
+ * path marks the invoice sent on its own -- only the operator saying so does
+ * that, because nothing here can detect whether the mail actually went.
  */
 
 export interface InvoiceMailAppView {
@@ -60,7 +64,7 @@ ${
     : ''
 }
 
-<div class="card">
+<div class="card" data-mail-app-step="download">
   <h2>1. Download the PDF</h2>
   <p class="muted">Save it somewhere you can find it in the next step.</p>
   <a href="/invoices/${v.invoice.id}/pdf" target="_blank" style="text-decoration:none">
@@ -74,10 +78,11 @@ ${
     <tr><td>Subject</td><td class="num">${esc(v.draft.subject)}</td></tr>
   </tbody></table>
   <p class="muted" style="white-space:pre-wrap">${esc(v.draft.body)}</p>
-  <a href="${v.mailtoHref}" style="text-decoration:none"><button type="button">Open in your mail app</button></a>
+  <a id="mailAppOpen" href="${v.mailtoHref}" style="text-decoration:none">
+    <button type="button">Open in your mail app</button></a>
 </div>
 
-<div class="card">
+<div class="card" data-mail-app-step="attach">
   <h2>3. Attach the PDF and send</h2>
   <p class="muted">Attach the file you downloaded in step 1, then send it the way you normally would.</p>
 </div>
@@ -98,6 +103,54 @@ ${
   </form>
 </div>
 
-<p><a href="/invoices/${v.invoice.id}">Back to the invoice</a></p>`,
+<p><a href="/invoices/${v.invoice.id}">Back to the invoice</a></p>
+
+<span id="mailAppTo" hidden>${esc(v.to ?? '')}</span>
+<span id="mailAppSubject" hidden>${esc(v.draft.subject)}</span>
+<pre id="mailAppBody" hidden>${esc(v.draft.body)}</pre>
+<span id="mailAppPdfUrl" hidden>${esc(`/invoices/${v.invoice.id}/pdf`)}</span>
+<span id="mailAppPdfFilename" hidden>${esc(`${v.invoice.number}.pdf`)}</span>
+
+<script>
+(function () {
+  // A browser has no window.native and keeps the plain mailto: link above,
+  // which is the best a browser can honestly do. Inside the native shell,
+  // window.native.capabilities.mailCompose means the shell can attach the
+  // PDF for real, which is the entire reason this flow is worth being
+  // native -- so replace the link's default (unattachable) behavior with a
+  // call into it, and drop the two steps that instruction only exists for.
+  var native = window.native;
+  if (!native || !native.capabilities || !native.capabilities.mailCompose) return;
+
+  var openLink = document.getElementById('mailAppOpen');
+  if (!openLink) return;
+
+  ['download', 'attach'].forEach(function (step) {
+    var el = document.querySelector('[data-mail-app-step="' + step + '"]');
+    if (el) el.hidden = true;
+  });
+
+  openLink.addEventListener('click', function (event) {
+    event.preventDefault();
+    var pdfUrl = document.getElementById('mailAppPdfUrl').textContent;
+    fetch(pdfUrl)
+      .then(function (response) { return response.blob(); })
+      .then(function (blob) {
+        var reader = new FileReader();
+        reader.onloadend = function () {
+          var base64 = String(reader.result).split(',')[1] || '';
+          native.composeMail({
+            to: document.getElementById('mailAppTo').textContent,
+            subject: document.getElementById('mailAppSubject').textContent,
+            body: document.getElementById('mailAppBody').textContent,
+            pdfBase64: base64,
+            pdfFilename: document.getElementById('mailAppPdfFilename').textContent,
+          });
+        };
+        reader.readAsDataURL(blob);
+      });
+  });
+})();
+</script>`,
   });
 }
