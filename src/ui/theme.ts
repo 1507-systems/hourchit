@@ -106,6 +106,13 @@ export const APP_ICON_LINKS =
   '<link rel="icon" type="image/svg+xml" href="https://hourchit.app/icon-mark.svg">';
 
 /**
+ * The privacy policy is published on hourchit.app, like the icons, so every
+ * tenant links one document. App Store Review Guideline 5.1.1(i) requires the
+ * link to be reachable inside the app, and the iOS shell shows these pages.
+ */
+export const PRIVACY_POLICY_URL = 'https://hourchit.app/privacy';
+
+/**
  * The product wordmark: "Hour" in the page's ordinary text colour, "Chit" in
  * amber. This is the one place amber appears purely as identity rather than
  * as a state signal -- the mockup names it explicitly as one of the four
@@ -126,4 +133,23 @@ export const WORDMARK_STYLE = `
 .wordmark{font-family:var(--mono);font-weight:700;text-transform:uppercase;
   letter-spacing:.06em;color:var(--text)}
 .wordmark .chit{color:var(--amber-text)}
+`;
+
+/**
+ * The quiet credit at the foot of every page shell: the wordmark plus the
+ * privacy policy link. A plain same-window link on purpose: the iOS shell has
+ * no WKUIDelegate, so a target=_blank navigation would be dropped there.
+ */
+export function brandFooter(): string {
+  return `<footer class="noprint brand">${wordmark()}<a href="${PRIVACY_POLICY_URL}" rel="noopener">Privacy</a></footer>`;
+}
+
+/** Footer treatment shared by the app shell, the login page and the mail shell. */
+export const BRAND_FOOTER_STYLE = `
+footer.brand{display:flex;justify-content:center;align-items:baseline;gap:1rem;
+  padding:1.4rem 1rem 2rem;opacity:.6}
+footer.brand .wordmark{font-size:.72rem}
+footer.brand a{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--text-dim);text-decoration:none}
+footer.brand a:hover{color:var(--text)}
 `;

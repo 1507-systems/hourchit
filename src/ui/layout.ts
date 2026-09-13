@@ -1,5 +1,11 @@
 import { esc } from './html';
-import { APP_ICON_LINKS, BRAND_TOKENS, WORDMARK_STYLE, wordmark } from './theme';
+import {
+  APP_ICON_LINKS,
+  BRAND_FOOTER_STYLE,
+  BRAND_TOKENS,
+  WORDMARK_STYLE,
+  brandFooter,
+} from './theme';
 
 const STYLE = `
 ${BRAND_TOKENS}
@@ -101,8 +107,7 @@ td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabu
 .ok{color:var(--text-dim)}
 .ok::before{content:"\\2713  "}
 a.btnlink{display:inline-block;text-decoration:none}
-footer.brand{padding:1.4rem 1rem 2rem;text-align:center;opacity:.6}
-footer.brand .wordmark{font-size:.72rem}
+${BRAND_FOOTER_STYLE}
 
 /* Print, and therefore Save as PDF, which is how an invoice and a notice of
    changed terms actually reach a client. Everything the reader cannot act on
@@ -148,6 +153,6 @@ ${APP_ICON_LINKS}
     ${opts.headerAction ? `<a href="${esc(opts.headerAction.href)}">${esc(opts.headerAction.label)}</a>` : ''}<a href="/logout">Sign out</a></nav>
 </header>
 <main>${opts.body}</main>
-<footer class="noprint brand">${wordmark()}</footer>
+${brandFooter()}
 </body></html>`;
 }
