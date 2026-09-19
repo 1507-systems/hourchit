@@ -6,7 +6,7 @@ function dashboard(overrides: Partial<DashboardData> = {}): DashboardData {
   return {
     business: 'Example', currency: 'USD', mileageRateCentsPerMile: 76,
     afterHoursStart: '16:30', customer: null, tasks: [], running: null,
-    routes: [], recentMileage: [], invoices: [], unbilledTotalCents: 0,
+    routes: [], recentMileage: [], invoices: [],
     ...overrides,
   };
 }

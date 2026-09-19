@@ -20,7 +20,6 @@ import { loadProfile } from './config/profiles';
 import { mileageRuleFromSettings, termsFor } from './config/profile';
 import { classifyTrip, routeTableDistance } from './domain/mileage';
 import { addMinutesIso, durationSeconds } from './domain/time';
-import { amountCentsFor, billableSeconds } from './domain/billing';
 import { mileageAmountCents } from './domain/money';
 import {
   createInvoiceForCustomer,
@@ -52,6 +51,7 @@ import {
   listTasks,
   logManualEntry,
   markInvoiceSent,
+  markInvoiceSentManually,
   startTimer,
   stopTimer,
   unbilledMileage,
@@ -62,7 +62,17 @@ import {
   saveDashboardPreferences,
   getInvoiceDeliveryDefault,
   setInvoiceDeliveryDefault,
+  getPendingBillingDisplay,
+  setPendingBillingDisplay,
+  taskRateHistory,
 } from './db';
+import {
+  billableTimeEntries,
+  selectionIds,
+  parsePendingBillingDisplay,
+} from './domain/pending-billing';
+import type { PendingBillingRow } from './ui/pending-billing';
+import { buildInvoice, aggregateInvoiceTime } from './domain/invoicing';
 import { renderDashboard, TaskView } from './ui/dashboard';
 import { renderMailList, renderThread } from './ui/mail';
 import { renderClient, renderClients } from './ui/clients';
@@ -184,7 +194,11 @@ app.get('/', async (c) => {
   const tasks = customer ? await listTasks(env, customer.id) : [];
 
   const running = await getRunningEntry(env);
-  let runningView: { taskName: string; eventName: string; startedAtMs: number } | null = null;
+  let runningView: {
+    taskName: string;
+    eventName: string;
+    startedAtMs: number;
+  } | null = null;
   if (running) {
     const rt = await getTask(env, running.taskId);
     runningView = {
@@ -195,44 +209,44 @@ app.get('/', async (c) => {
   }
 
   const unbilledTime = customer ? await unbilledTimeEntries(env, customer.id) : [];
-  const secByTask = new Map<number, number>();
-  for (const e of unbilledTime) {
-    secByTask.set(
-      e.taskId,
-      (secByTask.get(e.taskId) ?? 0) + durationSeconds(e.startedAt, e.stoppedAt as string),
-    );
-  }
-  const taskViews: TaskView[] = tasks.map((t) => ({
-    id: t.id,
-    name: t.name,
-    rateCentsPerHour: t.rate_cents_per_hour,
-    unbilledSeconds: secByTask.get(t.id) ?? 0,
-  }));
+  const taskViews: TaskView[] = tasks.map((t) => ({ id: t.id, name: t.name }));
 
   const mileage = customer ? await unbilledMileage(env, customer.id) : [];
   const recentMileage = customer ? await listRecentMileage(env, customer.id) : [];
   const preferences = await getDashboardPreferences(env, c.get('userKey'));
 
-  // The MONEY is billable time; the H:MM shown per task stays actual elapsed.
-  // Those are different questions -- "how long was I there" and "what does that
-  // invoice as" -- and conflating them would either hide real hours worked or
-  // preview a total the invoice then disagrees with.
-  const billableByTask = new Map<number, number>();
-  for (const e of unbilledTime) {
-    billableByTask.set(
-      e.taskId,
-      (billableByTask.get(e.taskId) ?? 0) +
-        billableSeconds(durationSeconds(e.startedAt, e.stoppedAt as string), terms, e.startedAt),
+  const termVersions = await listTermVersions(env);
+  const rateHistory = await taskRateHistory(env);
+  const pendingBillings: PendingBillingRow[] = unbilledTime.map((e) => ({
+    id: e.id,
+    kind: 'time',
+    task: e.taskName,
+    description: e.note ?? '',
+    date: utcToZonedWallTime(e.startedAt, profile.settings.timezone).slice(0, 16).replace('T', ' '),
+    seconds: durationSeconds(e.startedAt, e.stoppedAt as string),
+    amountCents: buildInvoice(
+      aggregateInvoiceTime(billableTimeEntries([e], terms, termVersions, rateHistory)),
+      [],
+      { mileageBillable: false },
+    ).totalCents,
+  }));
+  if (profile.settings.mileageBillable) {
+    pendingBillings.push(
+      ...mileage.map((m) => ({
+        id: m.id,
+        kind: 'mileage' as const,
+        task: 'Mileage',
+        description: `Mileage: ${m.miles} mi (${m.reason})`,
+        date: m.occurred_local.slice(0, 16).replace('T', ' '),
+        seconds: 0,
+        amountCents: mileageAmountCents(m.miles, m.rate_cents_per_mile),
+      })),
     );
   }
-  const timeCents = taskViews.reduce(
-    (acc, t) => acc + amountCentsFor(billableByTask.get(t.id) ?? 0, t.rateCentsPerHour),
-    0,
-  );
-  const mileageCents = mileage.reduce(
-    (acc, m) => acc + mileageAmountCents(m.miles, m.rate_cents_per_mile),
-    0,
-  );
+  // A visible path to invoice selection remains even when the operator hid
+  // the pending-billings dashboard module in their personal layout.
+  if (c.req.query('showBillings') === '1')
+    preferences.hidden = preferences.hidden.filter((id) => id !== 'unbilled');
 
   return c.html(
     renderDashboard({
@@ -246,7 +260,8 @@ app.get('/', async (c) => {
       routes: await listRoutes(env),
       recentMileage,
       invoices: await listInvoices(env),
-      unbilledTotalCents: timeCents + mileageCents,
+      pendingBillings,
+      pendingBillingDisplay: await getPendingBillingDisplay(env),
       preferences,
       customizing: c.req.query('customize') === '1',
       flash: readFlash(c.req.query('ok'), c.req.query('err')),
@@ -518,6 +533,7 @@ app.get('/settings', async (c) => {
       {
         business: profile.business.name,
         invoiceDeliveryDefault,
+        pendingBillingDisplay: await getPendingBillingDisplay(c.env),
         asOfDate,
         asOfLabel: longDate(asOfInstant, tz),
         asOfSource: v
@@ -685,6 +701,20 @@ app.post('/settings/terms', async (c) => {
           ? 'Terms recorded. Send the confirmation — nothing has been sent yet.'
           : 'Terms recorded. Now serve the notice — nothing has been sent yet.',
       ),
+  );
+});
+
+app.post('/settings/pending-billing', async (c) => {
+  const body = await c.req.parseBody();
+  const mode = parsePendingBillingDisplay(body.pendingBillingDisplay);
+  if (!mode)
+    return c.redirect(
+      '/settings?err=' + encodeURIComponent('Choose a valid pending billing display.'),
+    );
+  await setPendingBillingDisplay(c.env, mode);
+  return c.redirect(
+    '/settings?ok=' +
+      encodeURIComponent('Pending billing display saved for this tenant. Invoices are unchanged.'),
   );
 });
 
@@ -1026,7 +1056,7 @@ app.post('/mail/:id/reply', async (c) => {
 app.post('/invoices', async (c) => {
   const env = c.env;
   const profile = loadProfile(env.TENANT_PROFILE);
-  const body = await c.req.parseBody();
+  const body = await c.req.parseBody({ all: true });
   const customerId = Number(body.customerId);
   try {
     const invoice = await createInvoiceForCustomer(
@@ -1036,6 +1066,10 @@ app.post('/invoices', async (c) => {
       profile.settings.currency,
       profile.settings.mileageBillable,
       termsFor(profile),
+      {
+        timeEntryIds: selectionIds(body['timeEntryIds[]']),
+        mileageIds: selectionIds(body['mileageIds[]']),
+      },
     );
     return c.redirect(`/invoices/${invoice.id}`);
   } catch (e) {
@@ -1105,8 +1139,21 @@ app.post('/invoices/:id/send', async (c) => {
         encodeURIComponent('This invoice is already marked sent. Confirm again to update the record.'),
     );
   }
-  await markInvoiceSent(c.env, id, method, new Date().toISOString());
-  return c.redirect(`/invoices/${id}`);
+  const updated = await markInvoiceSentManually(
+    c.env,
+    id,
+    method,
+    new Date().toISOString(),
+    invoice.sent_at,
+  );
+  if (!updated)
+    return c.redirect(
+      `/invoices/${id}?err=` +
+        encodeURIComponent(
+          'Invoice changed before confirmation. Review its current status before trying again.',
+        ),
+    );
+  return c.redirect(`/invoices/${id}?ok=` + encodeURIComponent('Invoice marked as sent manually.'));
 });
 
 app.post('/invoices/:id/cancel', async (c) => {
@@ -1126,7 +1173,6 @@ app.post('/invoices/:id/cancel', async (c) => {
     return c.redirect(`/invoices/${id}?err=` + encodeURIComponent((error as Error).message));
   }
 });
-
 
 // ---- Sending an invoice ----------------------------------------------------
 
@@ -1149,9 +1195,9 @@ app.get('/invoices/:id/pdf', async (c) => {
     return new Response(pdf, {
       headers: {
         'Content-Type': 'application/pdf',
-        // inline: the operator is looking at it. The email attachment sets its
-        // own disposition separately.
-        'Content-Disposition': `inline; filename="${invoicePdfFilename(ctx.invoice.number)}"`,
+        // Only successful PDF responses get attachment disposition. An error
+        // stays a readable error page instead of downloading as a broken PDF.
+        'Content-Disposition': `${c.req.query('download') === '1' ? 'attachment' : 'inline'}; filename="${invoicePdfFilename(ctx.invoice.number)}"`,
         'Cache-Control': 'no-store',
       },
     });
@@ -1330,12 +1376,7 @@ app.get('/invoices/:id/mail-app', async (c) => {
     return c.redirect(`/invoices/${id}?err=` + encodeURIComponent(`A ${ctx.invoice.status} invoice cannot be sent.`));
   }
 
-  const draft = invoiceMailAppDraft({
-    invoice: ctx.invoice,
-    business: ctx.profile.business,
-    customer: { name: ctx.customer?.name ?? 'Client' },
-    to: ctx.to,
-  });
+  const draft = invoiceMailAppDraft({ ...ctx.view, to: ctx.to });
 
   return c.html(
     renderInvoiceMailApp(
@@ -1358,10 +1399,8 @@ app.get('/invoices/:id/mail-app', async (c) => {
 /**
  * What the native iOS shell hands to `MFMailComposeViewController` for a
  * mail_app client -- the SAME composition a hosted client's email would get
- * (full line items, total, the shared subject line), not the narrower
- * mailto:-safe draft above. A native compose sheet has no mailto: length
- * limit and can attach the PDF directly, so the reason that draft is
- * deliberately narrow does not apply here; the whole point of building this
+ * (full line items, total, the shared subject line), also used by the browser
+ * copy-body flow. A native compose sheet can attach the PDF directly; this
  * bridge was for a mail_app client to see an invoice indistinguishable from
  * what hosted delivery sends, just carried by the operator's own mail
  * account instead of HourChit's.

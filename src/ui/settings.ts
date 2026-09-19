@@ -1,3 +1,8 @@
+import {
+  PENDING_DISPLAY_MODES,
+  PENDING_DISPLAY_LABELS,
+  type PendingBillingDisplay,
+} from '../domain/pending-billing';
 import { esc } from './html';
 import { layout } from './layout';
 import { formatCents } from '../domain/money';
@@ -88,6 +93,7 @@ export interface SettingsView {
    * client's own stored mode.
    */
   invoiceDeliveryDefault: InvoiceDeliveryMode;
+  pendingBillingDisplay?: PendingBillingDisplay;
 }
 
 /** Read a stored minimum for display, tolerating a value we cannot parse. */
@@ -102,7 +108,12 @@ function describeMinimum(stored: string): string {
 }
 
 /** Split the stored minimum into the three form fields, whichever form it is in. */
-function minimumFields(stored: string): { mode: string; flat: string; weekday: string; weekend: string } {
+function minimumFields(stored: string): {
+  mode: string;
+  flat: string;
+  weekday: string;
+  weekend: string;
+} {
   try {
     const m = parseMinimumCallOut(stored);
     if (typeof m === 'number') {
@@ -175,6 +186,16 @@ ${flash}
            Work before that time bills at what is shown above; work after it does not.</p>`
       : ''
   }
+</div>
+
+<div class="card">
+  <h2>Pending billings</h2>
+  <form method="post" action="/settings/pending-billing">
+    <label for="pending-display">Pending billing display</label>
+    <select id="pending-display" name="pendingBillingDisplay">${PENDING_DISPLAY_MODES.map((mode) => `<option value="${mode}"${mode === (v.pendingBillingDisplay ?? 'task') ? ' selected' : ''}>${PENDING_DISPLAY_LABELS[mode]}</option>`).join('')}</select>
+    <p class="muted">Applies to this tenant's pending billings only. Each entry stays separate; invoices and PDFs are unchanged.</p>
+    <button type="submit">Save display</button>
+  </form>
 </div>
 
 <div class="card">

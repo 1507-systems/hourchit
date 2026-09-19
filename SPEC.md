@@ -47,9 +47,11 @@ included only for tenants whose profile explicitly states that it is reimbursed.
 
 ## Invoices
 
-Creating an invoice selects all eligible unbilled rows for its customer,
+Creating an invoice uses only explicitly selected eligible rows for its customer,
 calculates amounts under the terms and rates in force when the work occurred,
-persists immutable invoice lines, then attaches the source rows. Frozen lines
+persists immutable invoice lines and attaches the source rows in one atomic D1 batch.
+The transaction rechecks selected source snapshots; a stale selection aborts
+without leaving partial invoices or stealing rows from another invoice. Frozen lines
 are the rendering source for screen, PDF, and email so later configuration
 changes cannot restate an issued document.
 
@@ -89,3 +91,38 @@ Recent mileage is omitted whenever there are no mileage rows, including while
 customizing. Dashboard cards use tighter top spacing without changing cards on
 invoice, client, mail, or settings pages. Date/time inputs retain their existing
 local date-and-time behavior.
+
+## Pending billing display and selection
+
+Tenant setting `pending_billing_display` accepts `task_description`, `task`, or
+`description`, defaulting to `task` when unset. `POST /settings/pending-billing`
+accepts `pendingBillingDisplay`; unknown modes are rejected. It is presentation
+only, scoped to pending billings; invoice/PDF rendering is unchanged. Blank legacy
+descriptions show "No description". Every attendance stays separate in every mode.
+
+`POST /invoices` accepts `customerId`, repeated `timeEntryIds[]`, and repeated
+`mileageIds[]`. At least one entry must be explicitly selected. IDs must be
+positive safe integers, unique within each list, unbilled, nonvoided, finished
+(for time), and owned by the specified client. Mileage is selectable only when
+the tenant bills it. Unchecked entries stay unbilled. Empty or stale submissions
+redirect to the dashboard with an actionable error. Preview amounts share the
+same historical rates, minimums, rounding, and date splitting as invoice creation.
+
+## Browser manual-send contract
+
+The existing `mail_app` client policy gates `GET /invoices/:id/mail-app` and
+`GET /invoices/:id/mail-app/compose`. Both use the shared invoice email content;
+external sends omit the hosted-transport disclosure because HourChit does not
+send them. The browser page exposes full text and copies HTML plus text when
+supported, falls back to text copying, then to selecting visible text for manual
+copying. `mailto:` includes recipient and subject only; the user pastes the body
+and attaches the downloaded PDF. The PDF download remains the existing renderer.
+No preview, copy, open-email, or download action changes invoice status.
+
+`POST /invoices/:id/send` with `method=mail_app` explicitly confirms manual sending.
+Paid/canceled invoices are refused. A previously sent invoice requires
+`confirmResend=1`; a compare-and-set update prevents a concurrent confirmation
+from silently replacing a different sent record. Native composition is unchanged.
+
+Fast follow: device share-sheet invoice sending, gated by actual browser/mail-client
+compatibility testing. Not included in this change.

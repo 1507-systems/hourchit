@@ -30,7 +30,7 @@ run and moves between Cloudflare accounts without a code change.
   flagged billable when it starts at or after the after-hours cutoff (default
   16:30) or on a weekend; otherwise it's an ordinary commute and isn't billed.
   Distance comes from the route's stored one-way mileage, doubled for the return.
-- **Invoices**: bundle everything unbilled for a customer and render a clean,
+- **Invoices**: choose pending time and mileage entries with checkboxes and render a clean,
   printable page. Every attendance is a separate time line showing service and
   actual local work date above its event description and optional charge code.
   Invoices can be downloaded as PDF, emailed with the PDF attached, marked sent
@@ -140,10 +140,34 @@ npm run deploy
   dated billing terms and client/task administration are available in the app.
 - Distance is the stored route mileage. There's a `DistanceProvider` seam in
   `src/domain/mileage.ts` sized for a Google Maps Distance Matrix lookup.
-- Domain logic is unit-tested; there are no integration tests against the
-  Workers runtime yet — nothing runs real SQL against the real D1 schema, so a
-  wrong column name in a query can pass `npm test` and still break in
-  production. The app is otherwise smoke-tested by hand on `wrangler dev`.
+- Tests include real SQLite integration coverage against the complete migration
+  schema for selected invoicing and manual-send state. The local Worker is also
+  smoke-tested with `wrangler dev`; external mail apps and live PDF rendering
+  require their configured integrations.
+
+## Pending billings and manual email
+
+Under **Terms → Pending billing display**, choose **Task + description**, **Task only**,
+or **Description only** for the tenant. Each attendance stays a separate row;
+this setting never changes invoices or PDFs. Existing tenants start with task-only
+labels until they choose a mode.
+
+Select the pending entries you want and click **Add to invoice**. Select/deselect
+all and a running hours/charge total help review the selection. Unchecked entries
+remain unbilled; stale or competing submissions cannot bill the same entry twice.
+**Choose entries to invoice** reveals the selection card even if you hid it.
+
+For a client configured to use their own mail app, **Compose invoice email** opens
+these steps in a browser: download the PDF, **Copy body**, open your mail app,
+paste the body, attach the PDF, and send. The shared email renderer supplies all
+invoice details; formatted copying includes a plain-text fallback. If clipboard
+access fails, the text is selected for manual copying. Recipient and subject stay
+visible for clients that do not handle email links. Finally, **Mark as sent manually**
+records the operator's confirmation; copying, opening, and downloading do not.
+The native mail composer continues to attach the PDF directly.
+
+Device share-sheet sending is planned as a fast follow. Combined body/PDF
+clipboard copying is not supported.
 
 ## Dashboard preferences
 

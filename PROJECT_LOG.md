@@ -2,6 +2,80 @@
 
 Running history of decisions and significant changes. Newest first.
 
+## 2026-09-19: Final audit — pending billing and manual send
+
+Final feature branch rebased onto upstream privacy-policy commit `7572e71`.
+Implementation commit: `2b0e3a1`.
+
+- Documentation: README and SPEC describe the new controls and route contracts;
+  implementation plan and this audit record retained in the repository.
+- Functionality: **417 tests in 46 files pass** on local Node 26 and supported
+  CI Node 22.12, run sequentially. Both TypeScript configurations pass.
+- Build: Wrangler dry-run succeeds, 381.57 KiB (98.10 KiB gzip). No deployment.
+- Browser: local Worker smoke checks cover saved display modes, separate rows,
+  selection totals, selected-only invoices, remaining unbilled series entries,
+  full rich/plain copy payloads, and explicit manual sent confirmation.
+- Security: npm audit reports **0 vulnerabilities**. Parameterized queries,
+  tenant-isolated settings/DB access, authentication, HTML escaping, input
+  validation, stale selection rollback, and manual-confirmation races reviewed.
+  No hardcoded secrets or unresolved TODO/FIXME markers found in application
+  source; no tracked secret-file history found. Generated/private profiles remain
+  excluded. Independent code review found no production blockers.
+- Cleanup: removed obsolete per-task dashboard totals and their unused view data.
+- Expected notices: Node22 SQLite experimental warning applies only to tests;
+  non-security dependency updates are available but not part of this feature.
+- Verification incident: simultaneously running two complete suites caused
+  collisions in the pre-existing `profiles/zz-test.json` seed fixture. Confirmed
+  the shared file in the test helper; rerunning suites sequentially passed all
+  417 tests on each runtime. Do not run complete suites concurrently in one tree.
+
+No outstanding functionality or security findings in the audited feature scope.
+Live external-mail-client delivery and Cloudflare PDF rendering were not exercised:
+no real customer email was sent. PDF success/error behavior is covered with the
+binding test double; the actual invoice/PDF renderers and native composer are
+unchanged from main. Release/deployment remains separate from this reviewed PR.
+Share invoice is recorded as a Cortex fast follow (issue
+`19febe3c-38a8-4559-90df-99e4f05548f6`).
+
+## 2026-09-19: Pending billing selection and full browser manual sending
+
+Implementation on `feat/billing-manual-send`; not yet deployed. Added tenant-level
+pending display modes (task + description, task, description), separate attendance
+rows, and checkbox invoice selection. Invoice and PDF layout are unchanged.
+Selected totals reuse the invoice's historical rate and term calculation.
+Invoice creation is now a guarded atomic D1 batch; stale/invalid selections fail
+without partially saved invoices. Manual send now offers the full shared email
+body (HTML/plain copy and manual fallback), subject-only mailto, PDF download
+instructions, and explicit manual-send confirmation with concurrency protection.
+Share invoice remains a fast follow.
+
+Baseline: 378 tests passed. New tests run actual SQL against all migrations,
+including partial-save rollback and concurrent selection/confirmation failures.
+Feature verification before upstream rebase: 412 tests passed, both TypeScript
+configs passed, Worker dry-run bundle passed (381.38 KiB / 98.01 KiB gzip), and
+npm audit found zero vulnerabilities. Real Node 22.12 SQL tests passed (27 tests);
+Vitest enables its SQLite flag for that supported runtime.
+
+Browser smoke on fictional local D1 data verified tenant mode persistence,
+separate rows, select/deselect totals, selective invoice creation, remaining
+series entries unbilled, unchanged invoice presentation, rich/plain clipboard
+payloads, unchanged draft state after copying, manual-send confirmation and
+resend acknowledgement. Local PDF failure is explicit; success/error download
+headers are integration-tested with a Browser binding stub. No real email sent.
+The existing PDF rendering and native iOS mail composer were not live end-to-end
+tested; their existing route/rendering tests continue to pass.
+
+Independent review found no production blockers; its Node22 SQLite finding was
+resolved and tested. Source secret/unfinished-marker scans were clean. Outdated
+packages (Workers types, Node types, Hono, TypeScript, Vitest, Wrangler) are
+available updates, not reported vulnerabilities; dependency versions remain
+unchanged to avoid expanding this feature release. Upstream privacy-policy
+changes were retained by rebasing onto current main before the final check.
+Expected development notices: Node's SQLite adapter is experimental on older
+supported Node releases; Wrangler 4.131.0 reports a newer 4.135.0 version. Neither
+changes production runtime behavior. Sandbox localhost/log access required
+approval for local Wrangler verification. Test data is fictional and local only.
+
 ## 2026-09-11: Per-client invoice delivery modes
 
 Every client now stores an explicit invoice delivery mode -- `hosted`,
