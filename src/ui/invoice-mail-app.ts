@@ -13,9 +13,8 @@ import type { MailAppDraft } from '../mail/invoice-composition';
  * body and the PDF genuinely attached (see `invoice.ts` and the
  * `/invoices/:id/mail-app/compose` route). A plain browser has no such
  * capability: it cannot attach a file to a mailto: draft and cannot confirm
- * anything the mail app does afterward, so this page does the two things it
- * honestly can -- open a pre-filled draft, and hand over the PDF to attach by
- * hand. Neither path marks the invoice sent on its own -- only the operator
+ * anything the mail app does afterward, so this page copies the full email body, opens a draft,
+ * and hands over the PDF to attach by hand. Neither path marks the invoice sent on its own -- only the operator
  * saying so does that, because nothing here can detect whether the mail
  * actually went.
  */
@@ -40,9 +39,8 @@ export function renderInvoiceMailApp(v: InvoiceMailAppView, flash = ''): string 
 ${flash}
 
 <div class="card">
-  <p class="flash err"><strong>HourChit does not send this one.</strong> A browser can open a
-    pre-filled draft in your mail app, but it cannot attach the PDF for you and cannot see
-    whether you actually hit send. Do the three steps below, then confirm it went out.</p>
+  <p>Send from your own email account using the steps below. The email body contains the
+    same invoice details as HourChit's direct send. Attach the downloaded PDF before sending.</p>
 </div>
 
 ${
@@ -68,25 +66,31 @@ ${
 
 <div class="card">
   <h2>1. Download the PDF</h2>
-  <p class="muted">Save it somewhere you can find it in the next step.</p>
-  <a href="/invoices/${v.invoice.id}/pdf" target="_blank" style="text-decoration:none">
+  <p class="muted">Save the invoice PDF, then attach that file to your email in step 3.</p>
+  <a href="/invoices/${v.invoice.id}/pdf?download=1" target="_blank" rel="noopener" style="text-decoration:none">
     <button type="button" class="secondary">Download PDF</button></a>
 </div>
 
 <div class="card">
-  <h2>2. Open the draft</h2>
+  <h2>2. Copy the email body</h2>
   <table><tbody>
     <tr><td>To</td><td class="num"><strong>${v.to ? esc(v.to) : '<em>blank — fill in</em>'}</strong></td></tr>
     <tr><td>Subject</td><td class="num">${esc(v.draft.subject)}</td></tr>
   </tbody></table>
-  <p class="muted" style="white-space:pre-wrap">${esc(v.draft.body)}</p>
-  <a href="${v.mailtoHref}" style="text-decoration:none">
-    <button type="button">Open in your mail app</button></a>
+  <label for="email-body-text">Email body</label>
+  <textarea id="email-body-text" readonly rows="12" style="width:100%;box-sizing:border-box">${esc(v.draft.body)}</textarea>
+  <textarea id="email-body-html" hidden aria-hidden="true">${esc(v.draft.html)}</textarea>
+  <button type="button" id="copy-email-body">Copy body</button>
+  <p id="email-copy-status" role="status" aria-live="polite">Copies formatting where supported, with a plain-text version for other mail clients.</p>
+  <noscript><p>Select the email body above and copy it using your device's Copy command.</p></noscript>
 </div>
 
 <div class="card">
-  <h2>3. Attach the PDF and send</h2>
-  <p class="muted">Attach the file you downloaded in step 1, then send it the way you normally would.</p>
+  <h2>3. Open your email, paste and attach</h2>
+  <a href="${esc(v.mailtoHref)}" class="btnlink">Open in your mail app</a>
+  <p>Paste the copied body into the message, attach the PDF from step 1, check the recipient and send.</p>
+  <p class="muted">The recipient and subject are filled in when your mail app supports email links.
+    If nothing opens, start a message yourself using the recipient and subject shown above.</p>
 </div>
 
 <div class="card">
@@ -101,10 +105,45 @@ ${
              Yes, overwrite the existing sent record with today's date</label>`
         : ''
     }
-    <button type="submit">I sent this invoice</button>
+    <button type="submit">Mark as sent manually</button>
   </form>
 </div>
 
-<p><a href="/invoices/${v.invoice.id}">Back to the invoice</a></p>`,
+<p><a href="/invoices/${v.invoice.id}">Back to the invoice</a></p>
+<script>
+(function () {
+  var button = document.getElementById('copy-email-body');
+  var text = document.getElementById('email-body-text');
+  var html = document.getElementById('email-body-html');
+  var status = document.getElementById('email-copy-status');
+  button.addEventListener('click', async function () {
+    button.disabled = true;
+    try {
+      var copied = false;
+      if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({
+            'text/plain': new Blob([text.value], { type: 'text/plain' }),
+            'text/html': new Blob([html.value], { type: 'text/html' })
+          })]);
+          copied = true;
+        } catch (_) { /* Unsupported rich clipboard: try plain text next. */ }
+      }
+      if (!copied) {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(text.value);
+      }
+      status.textContent = 'Body copied. Paste it into your email, then attach the downloaded PDF.';
+    } catch (_) {
+      text.focus();
+      text.select();
+      text.setSelectionRange(0, text.value.length);
+      status.textContent = 'Automatic copying is unavailable. The body is selected; use your device’s Copy command, then paste it into your email and attach the PDF.';
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();
+</script>`,
   });
 }

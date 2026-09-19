@@ -1,7 +1,8 @@
+import { renderPendingBilling, type PendingBillingRow } from './pending-billing';
+import type { PendingBillingDisplay } from '../domain/pending-billing';
 import type { Customer, Invoice, Route, MileageRow } from '../db';
 import { DURATION_INPUT_PATTERN } from '../domain/duration';
 import { formatCents } from '../domain/money';
-import { formatHoursMinutes } from '../domain/time';
 import { esc } from './html';
 import { layout } from './layout';
 import {
@@ -13,8 +14,6 @@ import {
 export interface TaskView {
   id: number;
   name: string;
-  rateCentsPerHour: number;
-  unbilledSeconds: number;
 }
 
 export interface DashboardData {
@@ -28,7 +27,8 @@ export interface DashboardData {
   routes: Route[];
   recentMileage: MileageRow[];
   invoices: Invoice[];
-  unbilledTotalCents: number;
+  pendingBillings?: PendingBillingRow[];
+  pendingBillingDisplay?: PendingBillingDisplay;
   preferences?: DashboardPreferences;
   customizing?: boolean;
   flash?: { kind: 'ok' | 'err'; text: string };
@@ -68,16 +68,6 @@ export function renderDashboard(d: DashboardData): string {
           <div style="flex:0 0 auto"><button type="submit">Start</button></div>
         </form>
       </div>`;
-
-  const taskRows = d.tasks
-    .map(
-      (t) => `<tr>
-        <td>${esc(t.name)}</td>
-        <td class="num">${money(t.rateCentsPerHour)}/hr</td>
-        <td class="num">${formatHoursMinutes(t.unbilledSeconds)}</td>
-      </tr>`,
-    )
-    .join('');
 
   const manualHoursForm = `<div class="card">
     <h2>Log hours worked</h2>
@@ -167,12 +157,9 @@ export function renderDashboard(d: DashboardData): string {
     : '<p class="muted">No invoices yet.</p>';
 
   const createInvoice =
-    d.customer && d.unbilledTotalCents > 0
-      ? `<form method="post" action="/invoices">
-           <input type="hidden" name="customerId" value="${d.customer.id}">
-           <button type="submit">Create invoice: <span class="amt">${money(d.unbilledTotalCents)}</span> unbilled</button>
-         </form>`
-      : `<p class="muted">Nothing unbilled to invoice yet.</p>`;
+    d.customer && d.pendingBillings?.length
+      ? '<p><a class="btnlink" href="/?showBillings=1#pending-billing">Choose entries to invoice</a></p>'
+      : '<p class="muted">Nothing unbilled to invoice yet.</p>';
 
   const labels: Record<DashboardModuleId, string> = {
     timer: 'Timer',
@@ -180,7 +167,7 @@ export function renderDashboard(d: DashboardData): string {
     mileage: 'Log mileage',
     mail: 'Mail',
     invoices: 'Invoices',
-    unbilled: 'Unbilled by task',
+    unbilled: 'Pending billings',
     'recent-mileage': 'Recent mileage',
   };
   const modules: Record<DashboardModuleId, string> = {
@@ -191,8 +178,8 @@ export function renderDashboard(d: DashboardData): string {
       <p style="margin:.2rem 0"><a href="/mail">Open mail</a></p>
       <p class="muted" style="margin:.2rem 0;font-size:.85rem">Messages to this business, kept with the job rather than in a personal inbox.</p></div>`,
     invoices: `<div class="card"><h2>Invoices</h2>${createInvoice}<div style="margin-top:.8rem">${invoiceRows}</div></div>`,
-    unbilled: `<div class="card"><h2>Unbilled by task${d.customer ? ` · ${esc(d.customer.name)}` : ''}</h2>
-      ${d.tasks.length ? `<table><thead><tr><th>Task</th><th class="num">Rate</th><th class="num">On the clock</th></tr></thead><tbody>${taskRows}</tbody></table>` : '<p class="muted">No tasks yet.</p>'}</div>`,
+    unbilled: `<div class="card"><h2>Pending billings${d.customer ? ` · ${esc(d.customer.name)}` : ''}</h2>
+      ${d.customer ? renderPendingBilling(d.customer.id, d.pendingBillings ?? [], d.pendingBillingDisplay ?? 'task', d.currency) : '<p class="muted">No client yet.</p>'}</div>`,
     'recent-mileage': `<div class="card"><h2>Recent mileage</h2>${mileageList}</div>`,
   };
 

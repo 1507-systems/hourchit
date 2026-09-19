@@ -2,6 +2,45 @@
 
 Running history of decisions and significant changes. Newest first.
 
+## 2026-09-19: Pending billing selection and full browser manual sending
+
+Implementation on `feat/billing-manual-send`; not yet deployed. Added tenant-level
+pending display modes (task + description, task, description), separate attendance
+rows, and checkbox invoice selection. Invoice and PDF layout are unchanged.
+Selected totals reuse the invoice's historical rate and term calculation.
+Invoice creation is now a guarded atomic D1 batch; stale/invalid selections fail
+without partially saved invoices. Manual send now offers the full shared email
+body (HTML/plain copy and manual fallback), subject-only mailto, PDF download
+instructions, and explicit manual-send confirmation with concurrency protection.
+Share invoice remains a fast follow.
+
+Baseline: 378 tests passed. New tests run actual SQL against all migrations,
+including partial-save rollback and concurrent selection/confirmation failures.
+Feature verification before upstream rebase: 412 tests passed, both TypeScript
+configs passed, Worker dry-run bundle passed (381.38 KiB / 98.01 KiB gzip), and
+npm audit found zero vulnerabilities. Real Node 22.12 SQL tests passed (27 tests);
+Vitest enables its SQLite flag for that supported runtime.
+
+Browser smoke on fictional local D1 data verified tenant mode persistence,
+separate rows, select/deselect totals, selective invoice creation, remaining
+series entries unbilled, unchanged invoice presentation, rich/plain clipboard
+payloads, unchanged draft state after copying, manual-send confirmation and
+resend acknowledgement. Local PDF failure is explicit; success/error download
+headers are integration-tested with a Browser binding stub. No real email sent.
+The existing PDF rendering and native iOS mail composer were not live end-to-end
+tested; their existing route/rendering tests continue to pass.
+
+Independent review found no production blockers; its Node22 SQLite finding was
+resolved and tested. Source secret/unfinished-marker scans were clean. Outdated
+packages (Workers types, Node types, Hono, TypeScript, Vitest, Wrangler) are
+available updates, not reported vulnerabilities; dependency versions remain
+unchanged to avoid expanding this feature release. Upstream privacy-policy
+changes will be retained by rebasing onto current main before the final check.
+Expected development notices: Node's SQLite adapter is experimental on older
+supported Node releases; Wrangler 4.131.0 reports a newer 4.135.0 version. Neither
+changes production runtime behavior. Sandbox localhost/log access required
+approval for local Wrangler verification. Test data is fictional and local only.
+
 ## 2026-09-11: Per-client invoice delivery modes
 
 Every client now stores an explicit invoice delivery mode -- `hosted`,

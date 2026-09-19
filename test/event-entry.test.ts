@@ -96,12 +96,11 @@ describe('event entry interface', () => {
       mileageRateCentsPerMile: 76,
       afterHoursStart: '16:30',
       customer: null,
-      tasks: [{ id: 1, name: 'Event Tech Management', rateCentsPerHour: 12500, unbilledSeconds: 0 }],
+      tasks: [{ id: 1, name: 'Event Tech Management' }],
       running: null,
       routes: [],
       recentMileage: [],
       invoices: [],
-      unbilledTotalCents: 0,
     };
 
     const html = renderDashboard(data);
@@ -116,7 +115,7 @@ describe('event entry interface', () => {
   it('shows the event name while its timer is running', () => {
     const data: DashboardData = {
       business: 'Example', currency: 'USD', mileageRateCentsPerMile: 76, afterHoursStart: '16:30',
-      customer: null, tasks: [], routes: [], recentMileage: [], invoices: [], unbilledTotalCents: 0,
+      customer: null, tasks: [], routes: [], recentMileage: [], invoices: [],
       running: { taskName: 'Event Tech Management', eventName: 'Awards Ceremony', startedAtMs: 0 },
     };
 

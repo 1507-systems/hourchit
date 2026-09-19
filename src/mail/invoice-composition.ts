@@ -3,7 +3,12 @@ import { getCustomer, getInvoice, invoiceLines, type Customer, type Invoice } fr
 import { loadProfile } from '../config/profiles';
 import { termsFor, type TenantProfile } from '../config/profile';
 import { renderInvoice } from '../ui/invoice';
-import { invoiceEmailSubject, type InvoiceEmailView } from './invoice-email';
+import {
+  invoiceEmailSubject,
+  invoiceEmailText,
+  invoiceEmailHtml,
+  type InvoiceEmailView,
+} from './invoice-email';
 
 /**
  * What would go out for this invoice, assembled once and shared by every
@@ -49,46 +54,30 @@ function tenantBillingAddress(env: Env): string {
   return `billing@${env.TENANT_MAIL_DOMAIN ?? ''}`;
 }
 
-/**
- * What a mail_app draft carries, deliberately narrower than the hosted body.
- *
- * No line items and no total breakdown: a mailto: body has no reliable length
- * guarantee, and this text is what the operator's own mail app actually sends
- * to the client, over transport HourChit is not part of -- so unlike the
- * hosted intro, it never mentions HourChit at all, the same way a tenant on
- * their own domain never gets the sent-on-behalf-of disclosure.
- */
+/** Full shared email content. Only the hosted-transport disclosure differs. */
 export interface MailAppDraft {
   to: string | null;
   subject: string;
   body: string;
+  html: string;
 }
 
-export function invoiceMailAppDraft(args: {
-  invoice: Invoice;
-  business: { name: string };
-  customer: { name: string };
-  to: string | null;
-}): MailAppDraft {
-  const subject = invoiceEmailSubject({ invoice: args.invoice, business: args.business });
+export function invoiceMailAppDraft(args: InvoiceEmailView & { to: string | null }): MailAppDraft {
+  const view = { ...args, viaHourChit: false };
   return {
     to: args.to,
-    subject,
-    body: `Hi ${args.customer.name}, please find attached invoice ${args.invoice.number}. Let us know if you have any questions.`,
+    subject: invoiceEmailSubject(view),
+    body: invoiceEmailText(view),
+    html: invoiceEmailHtml(view),
   };
 }
 
 /**
- * A mailto: link for the draft above.
- *
- * Plain percent-encoding (encodeURIComponent), not the "+ for space"
- * form-encoding a query string sometimes gets: RFC 6068 mailto hfields are
- * pct-encoded like any other URI component, and a mail client that takes
- * "+" literally would hand the client an invoice email reading "please+find".
- * ui/notice.ts's existing mailto: link uses the same convention.
+ * The full body travels through Copy body, avoiding mailto length limits.
+ * Percent-encode fields individually: form-style '+' encoding is not mailto.
  */
-export function mailtoHref(draft: { to: string | null; subject: string; body: string }): string {
-  return `mailto:${encodeURIComponent(draft.to ?? '')}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+export function mailtoHref(draft: { to: string | null; subject: string; body?: string }): string {
+  return `mailto:${encodeURIComponent(draft.to ?? '')}?subject=${encodeURIComponent(draft.subject)}`;
 }
 
 export async function buildInvoiceComposition(env: Env, id: number): Promise<InvoiceComposition | null> {

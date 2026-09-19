@@ -72,7 +72,7 @@ function fakeDb(over: { invoice?: typeof INVOICE; customer?: typeof CUSTOMER } =
         },
         async run() {
           writes.push(sql.replace(/\s+/g, ' ').trim());
-          return { meta: { last_row_id: 1 } };
+          return { meta: { last_row_id: 1, changes: 1 } };
         },
       };
       if (/^\s*(INSERT|UPDATE|DELETE)/i.test(sql)) writes.push(sql.replace(/\s+/g, ' ').trim());
@@ -100,7 +100,12 @@ describe('GET /invoices/:id/mail-app', () => {
     const html = await res.text();
     expect(html).toContain('mailto:client%40example.invalid');
     expect(html).toContain('/invoices/8/pdf');
-    expect(html).toContain('I sent this invoice');
+    expect(html).toContain('Mark as sent manually');
+    expect(html).toContain('Copy body');
+    expect(html).toContain('TOTAL DUE');
+    expect(html).toContain('Event Tech Management');
+    expect(html).not.toContain('&amp;body=');
+    expect(html).toContain('Paste');
   });
 
   it('refuses with 403 for a client in hosted mode', async () => {
@@ -127,7 +132,13 @@ describe('GET /invoices/:id/mail-app/compose', () => {
     const { e } = env();
     const res = await app.request('/invoices/8/mail-app/compose', { method: 'GET', ...AUTH }, e);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { to: string; subject: string; html: string; pdfUrl: string; pdfFilename: string };
+    const body = (await res.json()) as {
+      to: string;
+      subject: string;
+      html: string;
+      pdfUrl: string;
+      pdfFilename: string;
+    };
     expect(body.to).toBe('client@example.invalid');
     expect(body.subject).toContain('TBY-0008');
     expect(body.html).toContain('Event Tech Management');

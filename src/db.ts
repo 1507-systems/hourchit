@@ -4,23 +4,16 @@
  */
 import type { Env } from './env';
 import { durationSeconds, TimeEntry } from './domain/time';
+import { aggregateInvoiceTime, buildInvoice, MileageItem } from './domain/invoicing';
+import { type BillingTerms } from './domain/billing';
 import {
-  aggregateInvoiceTime,
-  buildInvoice,
-  invoiceNumber,
-  MileageItem,
-  normalizeChargeCode,
-  normalizeEventName,
-  type BillableTimeEntry,
-} from './domain/invoicing';
-import { billableSeconds, type BillingTerms } from './domain/billing';
-import { splitBillableSecondsByLocalDate } from './domain/localtime';
-import {
-  taskRateForInstant,
-  termsForInstant,
-  type TermVersion,
-  type TaskRateVersion,
-} from './domain/terms';
+  billableTimeEntries,
+  selectionIds,
+  parsePendingBillingDisplay,
+  type InvoiceSelection,
+  type PendingBillingDisplay,
+} from './domain/pending-billing';
+import { type TermVersion, type TaskRateVersion } from './domain/terms';
 import {
   sanitizeDashboardPreferences,
   type DashboardPreferences,
@@ -229,6 +222,28 @@ export async function setInvoiceDeliveryDefault(env: Env, mode: InvoiceDeliveryM
     .run();
 }
 
+/** Presentation only: changing this never alters invoice lines or billing rules. */
+export async function getPendingBillingDisplay(env: Env): Promise<PendingBillingDisplay> {
+  const row = await db(env)
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .bind('pending_billing_display')
+    .first<{ value: string }>();
+  return parsePendingBillingDisplay(row?.value) ?? 'task';
+}
+export async function setPendingBillingDisplay(
+  env: Env,
+  mode: PendingBillingDisplay,
+): Promise<void> {
+  if (!parsePendingBillingDisplay(mode)) throw new Error('Choose a valid pending billing display.');
+  await db(env)
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    )
+    .bind('pending_billing_display', mode)
+    .run();
+}
+
 // ---- Tasks -----------------------------------------------------------------
 
 export async function listTasks(env: Env, customerId?: number): Promise<Task[]> {
@@ -247,7 +262,12 @@ export async function getTask(env: Env, id: number): Promise<Task | null> {
 
 export async function createTask(
   env: Env,
-  t: { customerId: number; name: string; description: string; rateCentsPerHour: number },
+  t: {
+    customerId: number;
+    name: string;
+    description: string;
+    rateCentsPerHour: number;
+  },
 ): Promise<number> {
   const r = await db(env)
     .prepare(
@@ -271,7 +291,12 @@ export async function getRoute(env: Env, id: number): Promise<Route | null> {
 
 export async function createRoute(
   env: Env,
-  r: { label: string; fromAddress: string; toAddress: string; oneWayMiles: number },
+  r: {
+    label: string;
+    fromAddress: string;
+    toAddress: string;
+    oneWayMiles: number;
+  },
 ): Promise<number> {
   const res = await db(env)
     .prepare('INSERT INTO routes (label, from_address, to_address, one_way_miles) VALUES (?, ?, ?, ?)')
@@ -471,9 +496,8 @@ export interface InvoiceContents {
 }
 
 /**
- * Create an invoice from everything currently unbilled for a customer. Marks
- * those time + mileage rows as belonging to the new invoice so they never get
- * billed twice, the cumulative unbilled total resets to zero afterward.
+ * Create an invoice from explicitly selected pending entries. Validate again
+ * inside an atomic batch so concurrent requests cannot claim the same work.
  */
 export async function createInvoiceForCustomer(
   env: Env,
@@ -492,9 +516,23 @@ export async function createInvoiceForCustomer(
    * never happen, but a missing version must not make an entry unbillable.
    */
   terms: BillingTerms,
+  selection: InvoiceSelection,
 ): Promise<Invoice> {
-  const time = await unbilledTimeEntries(env, customerId);
-  const mileage = await unbilledMileage(env, customerId);
+  if (!Number.isSafeInteger(customerId) || customerId <= 0)
+    throw new Error('Choose a valid client.');
+  const timeIds = selectionIds(selection?.timeEntryIds);
+  const mileageIds = selectionIds(selection?.mileageIds);
+  if (!timeIds.length && !mileageIds.length)
+    throw new Error('Select at least one pending billing entry.');
+  if (!mileageBillable && mileageIds.length)
+    throw new Error('Mileage is not billable for this tenant.');
+  const time = (await unbilledTimeEntries(env, customerId)).filter((e) => timeIds.includes(e.id));
+  const mileage = (await unbilledMileage(env, customerId)).filter((e) => mileageIds.includes(e.id));
+  if (time.length !== timeIds.length || mileage.length !== mileageIds.length) {
+    throw new Error(
+      'Selected entries are no longer available. Refresh pending billings and select again.',
+    );
+  }
 
   // Terms and per-task rates are resolved PER ENTRY against the moment the work
   // was PERFORMED, never against now. A rate that rose last week must not
@@ -508,60 +546,7 @@ export async function createInvoiceForCustomer(
     throw new Error('Nothing unbilled to invoice for this customer.');
   }
 
-  // Resolve every attendance first. Each remains its own invoice line; a
-  // cross-midnight attendance is split so each line has its actual local date.
-  const billableEntries: BillableTimeEntry[] = [];
-  for (const e of time) {
-    // The rate is likewise the one in force when the work was performed, not
-    // the task's current rate.
-    const rateThen = taskRateForInstant(
-      rateHistory.get(e.taskId) ?? [],
-      e.startedAt,
-      e.rateCentsPerHour,
-    );
-    // Rounded PER ATTENDANCE before summing. MSA 1.5 makes the minimum apply to
-    // each confirmed attendance, so three short visits are three minimums;
-    // rounding the aggregate instead would bill for one.
-    //
-    // And rounded under the terms in force WHEN THAT ATTENDANCE HAPPENED, so a
-    // later change to the increment or the minimum cannot reach backwards.
-    const termsThen =
-      termsForInstant(termVersions, e.startedAt, {
-        weekendDays: terms.weekendDays,
-        timezone: terms.timezone,
-      }) ?? terms;
-    const eventName = e.note?.trim() ? normalizeEventName(e.note) : '';
-    const chargeCode = normalizeChargeCode(e.chargeCode ?? '');
-    const termsKey = JSON.stringify({
-      incrementMinutes: termsThen.incrementMinutes,
-      minimumCallOutMinutes: termsThen.minimumCallOutMinutes,
-      weekendDays: termsThen.weekendDays,
-      timezone: termsThen.timezone,
-    });
-    const roundedSeconds = billableSeconds(
-      durationSeconds(e.startedAt, e.stoppedAt as string),
-      termsThen,
-      e.startedAt,
-    );
-    const parts = splitBillableSecondsByLocalDate(
-      e.startedAt,
-      e.stoppedAt as string,
-      termsThen.timezone,
-      roundedSeconds,
-    );
-    for (const part of parts) {
-      billableEntries.push({
-        taskId: e.taskId,
-        taskName: e.taskName,
-        eventName,
-        chargeCode,
-        serviceDate: part.serviceDate,
-        rateCentsPerHour: rateThen,
-        termsKey,
-        seconds: part.seconds,
-      });
-    }
-  }
+  const billableEntries = billableTimeEntries(time, terms, termVersions, rateHistory);
   const mileageItems: MileageItem[] = mileage.map((m) => ({
     description: `Mileage: ${m.occurred_local.slice(0, 10)} (${m.reason})`,
     miles: m.miles,
@@ -572,72 +557,116 @@ export async function createInvoiceForCustomer(
 
   const period = invoicePeriod(time, mileage);
 
-  const inserted = await db(env)
-    .prepare(
-      `INSERT INTO invoices
-         (customer_id, status, period_start, period_end,
-          time_subtotal_cents, mileage_subtotal_cents, total_cents, currency, lines_frozen)
-       VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, 1)`,
-    )
-    .bind(
-      customerId,
-      period.start,
-      period.end,
-      totals.timeSubtotalCents,
-      totals.mileageSubtotalCents,
-      totals.totalCents,
-      currency,
-    )
-    .run();
-  const invoiceId = inserted.meta.last_row_id as number;
-
-  const number = invoiceNumber(invoicePrefix, invoiceId);
-  await db(env).prepare('UPDATE invoices SET number = ? WHERE id = ?').bind(number, invoiceId).run();
-
-  // Freeze the lines as issued. From here the invoice is a record, not a query:
-  // later changes to the increment, the minimum call-out or the tenant timezone
-  // must never restate a document somebody has already been sent.
-  const lineStmts = totals.lines.map((l, i) =>
+  // A private temporary number identifies this invoice inside one atomic D1
+  // batch. last_insert_rowid() cannot serve that purpose after line inserts.
+  // The first statement checks source snapshots again under the transaction:
+  // a stale selection violates customer_id's NOT NULL constraint and aborts
+  // the entire batch, including any invoice/line/source changes.
+  const token = `pending-${crypto.randomUUID()}`;
+  const timeSnapshot = JSON.stringify(
+    time.map((e) => [e.id, e.taskId, e.startedAt, e.stoppedAt, e.note, e.chargeCode ?? null]),
+  );
+  const mileageSnapshot = JSON.stringify(
+    mileage.map((m) => [m.id, m.occurred_local, m.miles, m.rate_cents_per_mile, m.reason]),
+  );
+  const stmts: D1PreparedStatement[] = [
     db(env)
       .prepare(
-        `INSERT INTO invoice_lines
-           (invoice_id, kind, description, detail, service_date, charge_code,
-            quantity, unit, rate_cents, amount_cents, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `
+    INSERT INTO invoices (number, customer_id, status, period_start, period_end,
+      time_subtotal_cents, mileage_subtotal_cents, total_cents, currency, lines_frozen)
+    VALUES (?, CASE WHEN
+      (SELECT count(*) FROM time_entries te JOIN tasks t ON t.id = te.task_id
+       JOIN json_each(?) selected ON te.id = json_extract(selected.value, '$[0]')
+       WHERE t.customer_id = ? AND te.invoice_id IS NULL AND te.voided_at IS NULL
+         AND te.stopped_at IS NOT NULL
+         AND te.task_id = json_extract(selected.value, '$[1]')
+         AND te.started_at = json_extract(selected.value, '$[2]')
+         AND te.stopped_at = json_extract(selected.value, '$[3]')
+         AND te.note IS json_extract(selected.value, '$[4]')
+         AND te.charge_code IS json_extract(selected.value, '$[5]')) = ?
+      AND (SELECT count(*) FROM mileage_entries m
+       JOIN json_each(?) selected ON m.id = json_extract(selected.value, '$[0]')
+       WHERE m.customer_id = ? AND m.invoice_id IS NULL AND m.voided_at IS NULL AND m.billable = 1
+         AND m.occurred_local = json_extract(selected.value, '$[1]')
+         AND m.miles = json_extract(selected.value, '$[2]')
+         AND m.rate_cents_per_mile = json_extract(selected.value, '$[3]')
+         AND m.reason = json_extract(selected.value, '$[4]')) = ?
+      THEN ? ELSE NULL END, 'draft', ?, ?, ?, ?, ?, ?, 1)
+  `,
       )
       .bind(
-        invoiceId,
-        l.kind,
-        l.description,
-        l.detail ?? null,
-        l.serviceDate ?? null,
-        l.chargeCode ?? null,
-        l.quantity,
-        l.unit,
-        l.rateCents,
-        l.amountCents,
-        i,
+        token,
+        timeSnapshot,
+        customerId,
+        time.length,
+        mileageSnapshot,
+        customerId,
+        mileage.length,
+        customerId,
+        period.start,
+        period.end,
+        totals.timeSubtotalCents,
+        totals.mileageSubtotalCents,
+        totals.totalCents,
+        currency,
       ),
-  );
-  if (lineStmts.length) await db(env).batch(lineStmts);
+  ];
 
-  // Attach the billed rows.
-  const stmts: D1PreparedStatement[] = [];
-  for (const e of time) {
-    stmts.push(
-      db(env).prepare('UPDATE time_entries SET invoice_id = ? WHERE id = ?').bind(invoiceId, e.id),
-    );
-  }
-  for (const m of mileage) {
+  for (const [i, l] of totals.lines.entries()) {
     stmts.push(
       db(env)
-        .prepare('UPDATE mileage_entries SET invoice_id = ? WHERE id = ?')
-        .bind(invoiceId, m.id),
+        .prepare(
+          `INSERT INTO invoice_lines
+      (invoice_id, kind, description, detail, service_date, charge_code, quantity, unit, rate_cents, amount_cents, sort_order)
+      VALUES ((SELECT id FROM invoices WHERE number = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          token,
+          l.kind,
+          l.description,
+          l.detail ?? null,
+          l.serviceDate ?? null,
+          l.chargeCode ?? null,
+          l.quantity,
+          l.unit,
+          l.rateCents,
+          l.amountCents,
+          i,
+        ),
     );
   }
-  if (stmts.length) await db(env).batch(stmts);
-
-  return (await getInvoice(env, invoiceId)) as Invoice;
+  stmts.push(
+    db(env)
+      .prepare(
+        `UPDATE time_entries SET invoice_id = (SELECT id FROM invoices WHERE number = ?)
+    WHERE id IN (SELECT value FROM json_each(?))`,
+      )
+      .bind(token, JSON.stringify(timeIds)),
+  );
+  stmts.push(
+    db(env)
+      .prepare(
+        `UPDATE mileage_entries SET invoice_id = (SELECT id FROM invoices WHERE number = ?)
+    WHERE id IN (SELECT value FROM json_each(?))`,
+      )
+      .bind(token, JSON.stringify(mileageIds)),
+  );
+  stmts.push(
+    db(env)
+      .prepare("UPDATE invoices SET number = ? || '-' || printf('%04d', id) WHERE number = ?")
+      .bind(invoicePrefix, token),
+  );
+  try {
+    const results = await db(env).batch(stmts);
+    return (await getInvoice(env, results[0].meta.last_row_id as number)) as Invoice;
+  } catch (error) {
+    // Keep SQL/internal details out of the operator-facing flash message.
+    console.error('Could not save selected invoice', error);
+    throw new Error(
+      'Invoice could not be saved. Refresh pending billings and try again; selected entries may have changed.',
+    );
+  }
 }
 
 /**
@@ -686,6 +715,23 @@ export async function markInvoiceSent(env: Env, id: number, method: string, nowI
     )
     .bind(nowIso, method, id)
     .run();
+}
+
+/** Compare the observed send record in SQL, so concurrent confirmations cannot overwrite it. */
+export async function markInvoiceSentManually(
+  env: Env,
+  id: number,
+  method: string,
+  nowIso: string,
+  expectedSentAt: string | null,
+): Promise<boolean> {
+  const result = await db(env)
+    .prepare(
+      "UPDATE invoices SET status = 'sent', sent_at = ?, sent_method = ? WHERE id = ? AND status IN ('draft', 'sent') AND sent_at IS ?",
+    )
+    .bind(nowIso, method, id, expectedSentAt)
+    .run();
+  return result.meta.changes === 1;
 }
 
 /**
@@ -845,7 +891,12 @@ export async function listAllTasks(env: Env, customerId: number): Promise<Task[]
 export async function updateRoute(
   env: Env,
   id: number,
-  r: { label: string; fromAddress: string; toAddress: string; oneWayMiles: number },
+  r: {
+    label: string;
+    fromAddress: string;
+    toAddress: string;
+    oneWayMiles: number;
+  },
 ): Promise<void> {
   await db(env)
     .prepare(
@@ -927,7 +978,13 @@ export async function taskRateHistory(env: Env): Promise<Map<number, TaskRateVer
 
 export async function createTaskRateVersion(
   env: Env,
-  v: { taskId: number; effectiveFrom: string; rateCentsPerHour: number; recordedBy: string; note: string },
+  v: {
+    taskId: number;
+    effectiveFrom: string;
+    rateCentsPerHour: number;
+    recordedBy: string;
+    note: string;
+  },
 ): Promise<number> {
   const r = await db(env)
     .prepare(
@@ -990,7 +1047,13 @@ export async function invoiceDelivery(
         ORDER BY m.id DESC LIMIT 1`,
     )
     .bind(invoiceId, `%${(await getInvoice(env, invoiceId))?.number ?? ''}%`)
-    .first<{ status: string; at: string | null; detail: string; recipients: string; sentAt: string }>();
+    .first<{
+      status: string;
+      at: string | null;
+      detail: string;
+      recipients: string;
+      sentAt: string;
+    }>();
 
   if (!row) return null;
 
