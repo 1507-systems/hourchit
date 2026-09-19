@@ -149,7 +149,7 @@ ${APP_ICON_LINKS}
   <span class="biz">${esc(opts.business)}</span>
   <nav><a href="/">Dashboard</a><a href="/clients">Clients</a>
     <a href="/mail">Mail</a>
-    <a href="/settings">Terms</a>
+    <a href="/settings">Settings</a>
     ${opts.headerAction ? `<a href="${esc(opts.headerAction.href)}">${esc(opts.headerAction.label)}</a>` : ''}<a href="/logout">Sign out</a></nav>
 </header>
 <main>${opts.body}</main>

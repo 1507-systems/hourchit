@@ -316,3 +316,11 @@ theme fragment. Current tenants and future tenant subdomains inherit brand
 updates without copied files or per-tenant configuration. The SVG is not
 advertised as an Apple touch icon because iOS expects a raster icon; a canonical
 PNG can be added separately if the main site publishes one.
+
+## 2026-09-19 — Header Settings label
+
+Renamed the shared header link from Terms to Settings to reflect the broader
+settings page. Route remains /settings. Reviewed the one-line change for scope,
+escaping and authentication impact; no functional or security findings.
+Validation: full 417-test suite and both TypeScript configurations pass;
+npm audit reports zero vulnerabilities; diff whitespace check clean.
