@@ -166,3 +166,10 @@ it('excludes manual handoff controls from browser printing', () => {
 it('uses a real disabled button during preparation',()=>{
  expect(invoiceHtml('mail_app',false,true)).toContain('<button type="button" id="manual-send" disabled>Send</button>');
 });
+
+it('places browser PDF reminder above Send and excludes it from other modes',()=>{
+ const html=invoiceHtml('mail_app',false,true);
+ expect(html.indexOf('id="manual-attachment-reminder"')).toBeLessThan(html.indexOf('id="manual-send"'));
+ expect(html).toContain('Download the PDF and attach it manually');
+ for(const page of [invoiceHtml('hosted',false,true),invoiceHtml('disabled',false,true),invoiceHtml('mail_app',true,true)])expect(page).not.toContain('id="manual-attachment-reminder"');
+});
