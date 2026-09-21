@@ -224,7 +224,7 @@ ${BRAND_TOKENS_LIGHT}
   }
 
   ${!forPrint && args.manualSendHandoffEnabled && customer.invoice_delivery_mode === 'mail_app' && ['draft', 'sent'].includes(invoice.status)
-    ? '<p id="manual-attachment-reminder" class="manual-handoff">Download the PDF and attach it manually to your email. Send copies the formatted body for you to paste and opens your mail app with the recipient and subject filled in.</p>' : ''}
+    ? '<p id="manual-attachment-reminder" class="manual-handoff" hidden>Download the PDF and attach it manually to your email. Send copies the formatted body for you to paste and opens your mail app with the recipient and subject filled in.</p>' : ''}
   ${forPrint ? '' : `<div class="actions">
     ${
       invoice.status !== 'draft' && invoice.status !== 'sent'

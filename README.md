@@ -192,6 +192,9 @@ uses one Send button: supported native composer or recipient/
 subject mailto with HTML/plain body copying and manual PDF attachment. Download
 PDF remains available. External handoffs never mark invoices sent automatically.
 A reminder above Send tells browser users to download and attach the PDF manually.
-It is hidden only for a usable native mail bridge and reappears for manual fallback.
+It stays hidden inside the iOS shell, including after native failure or manual retry.
+Shell fallback instructions explain download, retry, paste and attachment before
+the next Send tap. Individual copy controls are collapsed under “Still didn’t work?
+Click here”; clipboard denial opens them for manual recovery.
 Browser preparation fetches only email content; the PDF is downloaded separately.
 The initial rollout is restricted to the test tenant pending device qualification.

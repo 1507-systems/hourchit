@@ -173,3 +173,7 @@ it('places browser PDF reminder above Send and excludes it from other modes',()=
  expect(html).toContain('Download the PDF and attach it manually');
  for(const page of [invoiceHtml('hosted',false,true),invoiceHtml('disabled',false,true),invoiceHtml('mail_app',true,true)])expect(page).not.toContain('id="manual-attachment-reminder"');
 });
+
+it('keeps web reminder hidden until shell detection prevents a flash',()=>{
+ expect(invoiceHtml('mail_app',false,true)).toContain('id="manual-attachment-reminder" class="manual-handoff" hidden');
+});

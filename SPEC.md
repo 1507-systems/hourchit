@@ -138,6 +138,8 @@ bridge is present. Browsers do not fetch the PDF during email preparation.
 One fresh click opens an available native composer;
 clipboard fallback copies HTML/plain text and opens recipient/subject mailto.
 A reminder above Send explains the manual download/attachment and body paste
-steps; capability detection hides it for native composition and reveals it on
-failure or fallback. Only explicit manual confirmation changes sent state.
+steps; shell identity keeps it hidden throughout native and fallback flows.
+Shell fallback status explains each manual step before retry. Recovery controls
+are collapsed by default; Copy body never launches mail, and clipboard denial
+opens the recovery section before selecting the text. Only explicit manual confirmation changes sent state.
 No schema migration is required.
