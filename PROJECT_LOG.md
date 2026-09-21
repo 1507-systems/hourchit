@@ -324,3 +324,21 @@ settings page. Route remains /settings. Reviewed the one-line change for scope,
 escaping and authentication impact; no functional or security findings.
 Validation: full 417-test suite and both TypeScript configurations pass;
 npm audit reports zero vulnerabilities; diff whitespace check clean.
+
+## 2026-09-20 — Tarnsby-only manual handoff implementation and review
+
+Added opt-in single manual Send action, shared full-body composition, private
+no-store responses, strict same-origin/PDF/size preparation, native v2/legacy
+handoff, Web Share and formatted/plain clipboard + mailto fallback. Download PDF
+remains independent; all external paths retain explicit sent confirmation.
+
+Independent review found print leakage and over-broad fallback after confirmed
+native unavailability; fixed with failing-then-passing regressions. Also fixed
+stale BFCache completion and replaced the disabled anchor with a real button.
+Security review checked tenant opt-in, authenticated routes, XSS-safe rendering,
+attachment validation, no auto-send mutation and no PDF clipboard. Dependency
+security audit: zero vulnerabilities. Native review/tests/build recorded in the
+separate iOS repo. Physical mail-app interoperability is not yet qualified;
+optional native picker remains disabled. This is a Tarnsby trial, not general
+production readiness. Private main must not be merged for this trial because
+both tenant CI triggers currently match every main change.

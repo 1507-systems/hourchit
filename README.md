@@ -185,3 +185,11 @@ never mentions a client.
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
+
+Manual invoice handoff can be staged per tenant with
+`settings.manualSendHandoffEnabled` (default false). An opted-in manual invoice
+uses one Send button: supported native composer, PDF Web Share, or recipient/
+subject mailto with HTML/plain body copying and manual PDF attachment. Download
+PDF remains available. External handoffs never mark invoices sent automatically.
+Share targets can omit recipient, subject or text; check the destination draft.
+The initial rollout is restricted to the test tenant pending device qualification.

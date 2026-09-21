@@ -1097,6 +1097,7 @@ app.get('/invoices/:id', async (c) => {
   return c.html(
     renderInvoice({
       business: profile.business,
+      manualSendHandoffEnabled: profile.settings.manualSendHandoffEnabled === true,
       customer,
       invoice,
       contents,
@@ -1198,7 +1199,7 @@ app.get('/invoices/:id/pdf', async (c) => {
         // Only successful PDF responses get attachment disposition. An error
         // stays a readable error page instead of downloading as a broken PDF.
         'Content-Disposition': `${c.req.query('download') === '1' ? 'attachment' : 'inline'}; filename="${invoicePdfFilename(ctx.invoice.number)}"`,
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (e) {
@@ -1420,7 +1421,9 @@ app.get('/invoices/:id/mail-app/compose', async (c) => {
     return c.text(`A ${ctx.invoice.status} invoice cannot be sent.`, 409);
   }
 
+  c.header('Cache-Control', 'private, no-store');
   return c.json({
+    body: invoiceEmailText({ ...ctx.view, viaHourChit: false }),
     to: ctx.to,
     subject: ctx.subject,
     html: invoiceEmailHtml({ ...ctx.view, viaHourChit: false }),
