@@ -126,3 +126,14 @@ from silently replacing a different sent record. Native composition is unchanged
 
 Fast follow: device share-sheet invoice sending, gated by actual browser/mail-client
 compatibility testing. Not included in this change.
+
+### Staged manual handoff
+
+The optional profile setting `manualSendHandoffEnabled` controls the browser
+capability dispatcher for manual-delivery invoices only. Composition is shared
+with existing mail and returned privately without caching. Prepared attachments
+must be same-origin PDFs with a valid signature, safe filename and at most 5 MiB.
+They remain in page memory. One fresh click opens an available native/share path;
+clipboard fallback copies HTML/plain text and opens recipient/subject mailto.
+Only explicit manual confirmation changes sent state. Share success is a handoff,
+not proof of email delivery. No schema migration is required.

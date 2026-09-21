@@ -27,7 +27,7 @@ function customer(mode: Customer['invoice_delivery_mode']): Customer {
   };
 }
 
-function invoiceHtml(mode: Customer['invoice_delivery_mode'], forPrint = false): string {
+function invoiceHtml(mode: Customer['invoice_delivery_mode'], forPrint = false, manualSendHandoffEnabled = false): string {
   return renderInvoice({
     business: { name: 'Example AV', address: '', email: '', phone: '' },
     customer: customer(mode),
@@ -50,6 +50,7 @@ function invoiceHtml(mode: Customer['invoice_delivery_mode'], forPrint = false):
     terms: { incrementMinutes: 15, minimumCallOutMinutes: 0, weekendDays: [0, 6], timezone: 'America/New_York' },
     lines: [],
     forPrint,
+    manualSendHandoffEnabled,
   });
 }
 
@@ -146,4 +147,22 @@ describe('renderClient: delivery-mode form and description', () => {
     const html = renderClient('Acme', customer('hosted'), [], [], false);
     expect(html).toContain("HourChit sends this client's invoices directly");
   });
+});
+
+it('opts in manual invoices only, preserving the PDF action', () => {
+ const html = invoiceHtml('mail_app', false, true);
+ expect(html).toContain('id="manual-send"');
+ expect(html).toContain('Download PDF');
+ expect(html).not.toContain('id="composeInvoiceEmail"');
+ expect(invoiceHtml('mail_app')).not.toContain('id="manual-send"');
+ expect(invoiceHtml('hosted', false, true)).not.toContain('id="manual-send"');
+ expect(invoiceHtml('mail_app', true, true)).not.toContain('id="manual-send"');
+});
+it('excludes manual handoff controls from browser printing', () => {
+ const html=invoiceHtml('mail_app',false,true);
+ expect(html).toContain('<section class="manual-handoff">');
+ expect(html).toMatch(/@media print[\s\S]*?\.manual-handoff[\s\S]*?display:\s*none/);
+});
+it('uses a real disabled button during preparation',()=>{
+ expect(invoiceHtml('mail_app',false,true)).toContain('<button type="button" id="manual-send" disabled>Send</button>');
 });

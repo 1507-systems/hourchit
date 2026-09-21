@@ -15,6 +15,8 @@ export interface ProfileBusiness {
 }
 
 export interface ProfileSettings {
+  /** Staged manual mail handoff; absent means legacy behavior. */
+  manualSendHandoffEnabled?: boolean;
   currency: string; // ISO 4217, e.g. "USD"
   mileageRateCentsPerMile: number; // e.g. 70 => $0.70/mi
   afterHoursStart: string; // "HH:MM" local cutoff

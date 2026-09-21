@@ -184,3 +184,13 @@ describe('confirming a mail-app send', () => {
     expect(writes.some((w) => /UPDATE invoices SET status = 'sent'/.test(w))).toBe(true);
   });
 });
+
+it('returns a private full plain body alongside HTML without sending', async () => {
+ const { e, writes } = env();
+ const res = await app.request('/invoices/8/mail-app/compose', AUTH, e);
+ expect(res.headers.get('cache-control')).toBe('private, no-store');
+ const draft = await res.json() as {body:string};
+ expect(draft.body).toContain('TOTAL DUE');
+ expect(draft.body).toContain('Event Tech Management');
+ expect(writes).toEqual([]);
+});

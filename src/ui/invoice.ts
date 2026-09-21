@@ -1,3 +1,4 @@
+import { manualSendControls, manualSendScript } from './manual-send';
 import type { Customer, Invoice, InvoiceContents, InvoiceLine } from '../db';
 import type { ProfileBusiness } from '../config/profile';
 import { formatCents } from '../domain/money';
@@ -45,6 +46,7 @@ export function renderInvoice(args: {
    * either media type.
    */
   forPrint?: boolean;
+  manualSendHandoffEnabled?: boolean;
   /** Pre-escaped app flash HTML; omitted from printable/client output. */
   flash?: string;
 }): string {
@@ -145,7 +147,7 @@ ${BRAND_TOKENS_LIGHT}
      mark it sent -- so at the moment of printing an invoice is always "draft",
      and every document going out would tell the client not to pay it yet. */
   @media print{
-    .actions,.nav,.status{display:none}
+    .actions,.nav,.status,.manual-handoff{display:none}
     /* Kraft is print-only by design: a paper-stock feel behind the invoice's
        own header band on the copy that leaves the building, while the
        on-screen view stays plain paper/white. */
@@ -228,7 +230,7 @@ ${BRAND_TOKENS_LIGHT}
         : customer.invoice_delivery_mode === 'hosted'
           ? `<a href="/invoices/${invoice.id}/email" style="text-decoration:none"><button>Email to client</button></a>`
           : customer.invoice_delivery_mode === 'mail_app'
-            ? `<a id="composeInvoiceEmail" href="/invoices/${invoice.id}/mail-app" style="text-decoration:none"><button>Compose invoice email</button></a>`
+            ? args.manualSendHandoffEnabled ? `<button type="button" id="manual-send" disabled>Send</button>` : `<a id="composeInvoiceEmail" href="/invoices/${invoice.id}/mail-app" style="text-decoration:none"><button>Compose invoice email</button></a>`
             : ''
     }
     <a href="/invoices/${invoice.id}/pdf" target="_blank" style="text-decoration:none">
@@ -270,7 +272,7 @@ ${BRAND_TOKENS_LIGHT}
        fallback page has none of this. */
     forPrint ||
     (invoice.status !== 'draft' && invoice.status !== 'sent') ||
-    customer.invoice_delivery_mode !== 'mail_app'
+    args.manualSendHandoffEnabled || customer.invoice_delivery_mode !== 'mail_app'
       ? ''
       : `<script>
 (function () {
@@ -307,6 +309,7 @@ ${BRAND_TOKENS_LIGHT}
 })();
 </script>`
   }
+${!args.forPrint && args.manualSendHandoffEnabled && customer.invoice_delivery_mode === 'mail_app' && ['draft','sent'].includes(invoice.status) ? manualSendControls(invoice.id, !!invoice.sent_at) + manualSendScript(invoice.id) : ''}
 </body></html>`;
 }
 
