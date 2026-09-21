@@ -342,3 +342,9 @@ separate iOS repo. Physical mail-app interoperability is not yet qualified;
 optional native picker remains disabled. This is a Tarnsby trial, not general
 production readiness. Private main must not be merged for this trial because
 both tenant CI triggers currently match every main change.
+
+## 2026-09-20 — Browser manual mail replaces Web Share
+
+User's physical Safari→Mail evidence showed PDF attachment but plain body and empty recipient/subject. Retired browser share dispatch. Capability detection selects the existing native HTML/PDF composer; otherwise Send copies HTML/plain text and opens recipient/subject mailto. Visible reminder immediately above Send explains paste and manual PDF attachment. Browser preparation no longer fetches PDFs. Native failure/unavailable reveals the reminder and requires a fresh fallback click. Download PDF remains independent.
+
+Bounded audit: documentation updated; 443 tests and both type checks pass; Worker dry bundle passes; npm audit zero vulnerabilities; independent review found no code/security blocker, and requested non-vacuous native PDF-rejection assertions were added and passed (39 focused tests). Reviewed escaped static reminder, exact bridge capability predicates, existing PDF validation/auth, clipboard denial/restore/duplicate handling, no sent mutations. Three new regressions observed failing before implementation. No secrets or dependencies added. No outstanding finding in this change; whole-project native/device matrix remains unqualified. Tarnsby-only rollout remains mandatory.

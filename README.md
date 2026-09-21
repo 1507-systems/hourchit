@@ -166,8 +166,8 @@ visible for clients that do not handle email links. Finally, **Mark as sent manu
 records the operator's confirmation; copying, opening, and downloading do not.
 The native mail composer continues to attach the PDF directly.
 
-Device share-sheet sending is planned as a fast follow. Combined body/PDF
-clipboard copying is not supported.
+Device share-sheet sending is deprecated: it loses HTML formatting and may omit
+recipient/subject. Combined body/PDF clipboard copying is not supported.
 
 ## Dashboard preferences
 
@@ -188,8 +188,10 @@ MIT. See [`LICENSE`](LICENSE).
 
 Manual invoice handoff can be staged per tenant with
 `settings.manualSendHandoffEnabled` (default false). An opted-in manual invoice
-uses one Send button: supported native composer, PDF Web Share, or recipient/
+uses one Send button: supported native composer or recipient/
 subject mailto with HTML/plain body copying and manual PDF attachment. Download
 PDF remains available. External handoffs never mark invoices sent automatically.
-Share targets can omit recipient, subject or text; check the destination draft.
+A reminder above Send tells browser users to download and attach the PDF manually.
+It is hidden only for a usable native mail bridge and reappears for manual fallback.
+Browser preparation fetches only email content; the PDF is downloaded separately.
 The initial rollout is restricted to the test tenant pending device qualification.

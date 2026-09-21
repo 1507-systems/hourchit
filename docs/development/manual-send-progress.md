@@ -13,3 +13,5 @@
 - Review BFCache finding regraded important (stale result can overwrite restored session status); generation guard added with RED/GREEN regression. Disabled anchor replaced with real button, also RED/GREEN.
 - Task 6 physical matrix remains unverified. Available paired iPhone detected; no mail interoperability asserted. Swift bridge string tests do not substitute for real WKWebView/device callback tests.
 - Ruling: optional native picker stays disabled because no physical qualification exists; cost is Apple Mail composer rather than app choice in new shell until verified.
+
+- Superseding September 20 decision: retire all browser Web Share dispatch after actual Safari/Mail evidence. Native capability chooses full composer; browsers get HTML clipboard plus addressed/subject mailto and above-Send manual PDF reminder. Physical native qualification remains pending.

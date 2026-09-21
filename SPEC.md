@@ -124,8 +124,8 @@ Paid/canceled invoices are refused. A previously sent invoice requires
 `confirmResend=1`; a compare-and-set update prevents a concurrent confirmation
 from silently replacing a different sent record. Native composition is unchanged.
 
-Fast follow: device share-sheet invoice sending, gated by actual browser/mail-client
-compatibility testing. Not included in this change.
+Device share-sheet invoice sending is deprecated after physical Safari→Mail
+testing showed plain text and missing recipient/subject.
 
 ### Staged manual handoff
 
@@ -133,7 +133,11 @@ The optional profile setting `manualSendHandoffEnabled` controls the browser
 capability dispatcher for manual-delivery invoices only. Composition is shared
 with existing mail and returned privately without caching. Prepared attachments
 must be same-origin PDFs with a valid signature, safe filename and at most 5 MiB.
-They remain in page memory. One fresh click opens an available native/share path;
+They remain in page memory and are prepared only when a usable native mail
+bridge is present. Browsers do not fetch the PDF during email preparation.
+One fresh click opens an available native composer;
 clipboard fallback copies HTML/plain text and opens recipient/subject mailto.
-Only explicit manual confirmation changes sent state. Share success is a handoff,
-not proof of email delivery. No schema migration is required.
+A reminder above Send explains the manual download/attachment and body paste
+steps; capability detection hides it for native composition and reveals it on
+failure or fallback. Only explicit manual confirmation changes sent state.
+No schema migration is required.
