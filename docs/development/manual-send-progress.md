@@ -15,3 +15,5 @@
 - Ruling: optional native picker stays disabled because no physical qualification exists; cost is Apple Mail composer rather than app choice in new shell until verified.
 
 - Superseding September 20 decision: retire all browser Web Share dispatch after actual Safari/Mail evidence. Native capability chooses full composer; browsers get HTML clipboard plus addressed/subject mailto and above-Send manual PDF reminder. Physical native qualification remains pending.
+
+- User confirms formatted browser mail and first shell Send work. Shell reminder now remains hidden for entire lifecycle; collapsed manual recovery and complete pre-retry instructions replace expanded/late guidance. Exact device versions still unknown.

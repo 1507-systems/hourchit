@@ -1,18 +1,18 @@
 import { expect, it, vi } from 'vitest';
 import { runInNewContext } from 'node:vm';
-import { manualSendScript } from '../src/ui/manual-send';
+import { manualSendControls, manualSendScript } from '../src/ui/manual-send';
 
 const draft = { to:'client@example.test', subject:'Invoice', body:'Full invoice', html:'<p>Full invoice</p>', pdfUrl:'/invoices/1/pdf', pdfFilename:'INV-1.pdf' };
 async function setup(options: { native?: any; share?: any; clipboard?: any; pdf?: Response; canShare?: boolean } = {}) {
  const events: Record<string,Function> = {}, listeners:Record<string,Function> = {};
  const elements:Record<string,any> = {};
- for(const id of ['manual-attachment-reminder','manual-send','manual-status','manual-details','manual-body','manual-to','manual-subject','manual-open','manual-confirm','manual-copy-to','manual-copy-subject']) elements[id] = {disabled:false,hidden:true,textContent:'',value:'',href:'',focus:vi.fn(),select:vi.fn(),addEventListener:(name:string,fn:Function)=>{events[id+name]=fn;}};
+ for(const id of ['manual-attachment-reminder','manual-send','manual-status','manual-details','manual-body','manual-to','manual-subject','manual-open','manual-confirm','manual-copy-to','manual-copy-subject','manual-copy-body','manual-recovery']) elements[id] = {disabled:false,hidden:true,textContent:'',value:'',href:'',focus:vi.fn(),select:vi.fn(),addEventListener:(name:string,fn:Function)=>{events[id+name]=fn;}};
  const fetch = vi.fn(async (url:string) => url.endsWith('/compose') ? new Response(JSON.stringify(draft),{headers:{'Content-Type':'application/json'}}) : options.pdf ?? new Response('%PDF-1.7\nfixture',{headers:{'Content-Type':'application/pdf'}}));
  const location={origin:'https://tarnsby.example.test',href:''};
  class Item {constructor(public data:any){}}
  runInNewContext(manualSendScript(1).replace(/^<script>|<\/script>$/g,''),{document:{getElementById:(id:string)=>elements[id]},window:{native:options.native,addEventListener:(name:string,fn:Function)=>{listeners[name]=fn;}},navigator:{share:options.share,canShare:()=>options.canShare!==false,clipboard:options.clipboard},location,fetch,URL,Blob,File,AbortController,setTimeout,clearTimeout,ClipboardItem:Item,crypto:{randomUUID:()=> 'test-id'},btoa:(s:string)=>Buffer.from(s,'binary').toString('base64'),Uint8Array,console});
  for(let n=0;n<15;n++) await new Promise(r=>setTimeout(r,0));
- return {elements,fetch,location,listeners,click:()=>events['manual-sendclick']({preventDefault(){}})};
+ return {elements,fetch,location,listeners,click:()=>events['manual-sendclick']({preventDefault(){}}),copyBody:()=>events['manual-copy-bodyclick']()};
 }
 it('web skips share and PDF preparation, copies HTML and opens addressed mail',async()=>{
  const share=vi.fn(),write=vi.fn().mockResolvedValue(undefined),s=await setup({share,clipboard:{write}});
@@ -35,16 +35,16 @@ it('prefers native v2 and leaves cancellation terminal',async()=>{
 it('copies formatted/plain text then opens recipient and subject',async()=>{
  const write=vi.fn().mockResolvedValue(undefined),s=await setup({clipboard:{write}});await s.click();
  const data=write.mock.calls[0][0][0].data;expect(await data['text/html'].text()).toBe(draft.html);expect(await data['text/plain'].text()).toBe(draft.body);
- expect(s.location.href).toBe('mailto:client%40example.test?subject=Invoice');expect(s.elements['manual-status'].textContent).toContain('attach');
+ expect(s.location.href).toBe('mailto:client%40example.test?subject=Invoice');expect(s.elements['manual-status'].textContent).toBe('');
 });
 it('selects text when clipboard is denied, never claiming copy success',async()=>{
  const s=await setup({clipboard:{write:vi.fn().mockRejectedValue(Error()),writeText:vi.fn().mockRejectedValue(Error())}});await s.click();expect(s.elements['manual-body'].select).toHaveBeenCalled();expect(s.elements['manual-status'].textContent).not.toContain('Body copied');
 });
 it.each([['text/html','<html>Login</html>'],['application/pdf',''],['application/pdf','not a pdf']])('never shares invalid attachment %s',async(type,bytes)=>{
- const share=vi.fn(),handoffInvoice=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice},pdf:new Response(bytes,{headers:{'Content-Type':type}})});await s.click();expect(share).not.toHaveBeenCalled();expect(handoffInvoice).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(false);expect(s.elements['manual-details'].hidden).toBe(false);
+ const share=vi.fn(),handoffInvoice=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice},pdf:new Response(bytes,{headers:{'Content-Type':type}})});await s.click();expect(share).not.toHaveBeenCalled();expect(handoffInvoice).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(true);expect(s.elements['manual-details'].hidden).toBe(false);
 });
 it('does not retry another composer after uncertain native outcome',async()=>{
- const share=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice:vi.fn().mockRejectedValue(Error('timeout'))}});await s.click();expect(share).not.toHaveBeenCalled();expect(s.elements['manual-status'].textContent).toContain('Check');
+ const share=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice:vi.fn().mockRejectedValue(Error('timeout'))}});await s.click();expect(share).not.toHaveBeenCalled();expect(s.elements['manual-status'].textContent).toContain('Before retrying');
 });
 it('clears prepared attachment on pagehide',async()=>{
  const share=vi.fn(),s=await setup({share});s.listeners.pagehide();await s.click();expect(share).not.toHaveBeenCalled();
@@ -59,10 +59,10 @@ it('does not launch a duplicate while clipboard writing is active',async()=>{
  let resolve!:()=>void;const write=vi.fn(()=>new Promise<void>(r=>{resolve=r})),s=await setup({clipboard:{write}});const first=s.click();await s.click();expect(write).toHaveBeenCalledOnce();resolve();await first;
 });
 it('rejects oversized PDF before native or browser handoff',async()=>{
- const share=vi.fn(),handoffInvoice=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice},pdf:new Response('%PDF-fixture',{headers:{'Content-Type':'application/pdf','Content-Length':'5242881'}})});await s.click();expect(share).not.toHaveBeenCalled();expect(handoffInvoice).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(false);
+ const share=vi.fn(),handoffInvoice=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice},pdf:new Response('%PDF-fixture',{headers:{'Content-Type':'application/pdf','Content-Length':'5242881'}})});await s.click();expect(share).not.toHaveBeenCalled();expect(handoffInvoice).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(true);
 });
 it.each([403,404,500])('falls back without sharing an HTTP %s attachment',async(code)=>{
- const share=vi.fn(),handoffInvoice=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice},pdf:new Response('Error',{status:code,headers:{'Content-Type':'application/pdf'}})});await s.click();expect(share).not.toHaveBeenCalled();expect(handoffInvoice).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(false);
+ const share=vi.fn(),handoffInvoice=vi.fn(),s=await setup({share,native:{capabilities:{invoiceHandoff:2},handoffInvoice},pdf:new Response('Error',{status:code,headers:{'Content-Type':'application/pdf'}})});await s.click();expect(share).not.toHaveBeenCalled();expect(handoffInvoice).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(true);
 });
 it('reports saved native drafts without implying sent',async()=>{
  const s=await setup({native:{capabilities:{invoiceHandoff:2},handoffInvoice:vi.fn().mockResolvedValue({requestId:'test-id',status:'savedDraft'})}});await s.click();expect(s.elements['manual-status'].textContent).toContain('Draft saved');expect(s.location.href).toBe('');
@@ -70,12 +70,38 @@ it('reports saved native drafts without implying sent',async()=>{
 it('uses plain text when rich clipboard is unavailable',async()=>{
  const writeText=vi.fn().mockResolvedValue(undefined),s=await setup({clipboard:{write:vi.fn().mockRejectedValue(Error()),writeText}});await s.click();expect(writeText).toHaveBeenCalledWith(draft.body);expect(s.elements['manual-status'].textContent).toContain('plain text');
 });
-it('shows reminder after native unavailable and uses copy on fresh click',async()=>{
+it('keeps browser reminder hidden after native unavailable and uses copy on fresh click',async()=>{
  const share=vi.fn(),write=vi.fn().mockResolvedValue(undefined),handoffInvoice=vi.fn().mockResolvedValue({requestId:'test-id',status:'unavailable'});
  const s=await setup({share,clipboard:{write},native:{capabilities:{invoiceHandoff:2},handoffInvoice}});
- await s.click();expect(write).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(false);
+ await s.click();expect(write).not.toHaveBeenCalled();expect(s.elements['manual-attachment-reminder'].hidden).toBe(true);
  await s.click();expect(share).not.toHaveBeenCalled();expect(write).toHaveBeenCalledOnce();expect(handoffInvoice).toHaveBeenCalledOnce();
 });
 it('ignores a clipboard completion from before page restoration',async()=>{
  let resolve!:()=>void;const write=vi.fn(()=>new Promise<void>(r=>{resolve=r})),s=await setup({clipboard:{write}});const pending=s.click();s.listeners.pagehide();s.listeners.pageshow({persisted:true});for(let i=0;i<15;i++)await new Promise(r=>setTimeout(r,0));const before=s.elements['manual-status'].textContent;resolve();await pending;expect(s.elements['manual-status'].textContent).toBe(before);expect(s.location.href).toBe('');
+});
+
+it('keeps shell reminder hidden through legacy handoff and clipboard fallback',async()=>{
+ const s=await setup({native:{platform:'ios',capabilities:{mailCompose:true},composeMail:vi.fn()},clipboard:{write:vi.fn().mockResolvedValue(undefined)}});
+ await s.click();expect(s.elements['manual-attachment-reminder'].hidden).toBe(true);
+ expect(s.elements['manual-status'].textContent).toContain('If no composer opened, download the PDF');
+ expect(s.elements['manual-status'].textContent).toContain('paste the body');
+ expect(s.elements['manual-status'].textContent).not.toContain('Check your mail app.');
+ await s.click();expect(s.elements['manual-attachment-reminder'].hidden).toBe(true);expect(s.elements['manual-status'].textContent).toBe('');
+});
+it('identifies a shell without an available composer',async()=>{
+ const s=await setup({native:{platform:'ios',capabilities:{mailCompose:false}}});expect(s.elements['manual-attachment-reminder'].hidden).toBe(true);expect(s.elements['manual-status'].textContent).toContain('Download the PDF');
+});
+it('renders collapsed recovery with individual body copying',()=>{
+ const html=manualSendControls(1,false);expect(html).toContain('<details id="manual-recovery">');expect(html).toContain('Still didn’t work? Click here');expect(html).toContain('id="manual-copy-body"');expect(html).toContain('Create a new email');
+});
+it('opens recovery when copying is denied and supports copy body without opening mail',async()=>{
+ const denied=await setup({clipboard:{writeText:vi.fn().mockRejectedValue(Error())}});await denied.click();expect(denied.elements['manual-recovery'].open).toBe(true);
+ const write=vi.fn().mockResolvedValue(undefined),s=await setup({clipboard:{write}});await s.copyBody();expect(write).toHaveBeenCalledOnce();expect(s.location.href).toBe('');
+});
+
+it('does not unlock a restored Send when an older Copy body finishes',async()=>{
+ let firstResolve!:()=>void,secondResolve!:()=>void;
+ const write=vi.fn().mockImplementationOnce(()=>new Promise<void>(r=>{firstResolve=r})).mockImplementationOnce(()=>new Promise<void>(r=>{secondResolve=r}));
+ const s=await setup({clipboard:{write}});const old=s.copyBody();s.listeners.pagehide();s.listeners.pageshow({persisted:true});for(let i=0;i<15;i++)await new Promise(r=>setTimeout(r,0));
+ const current=s.click();firstResolve();await old;await s.click();expect(write).toHaveBeenCalledTimes(2);secondResolve();await current;
 });
