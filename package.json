@@ -26,16 +26,16 @@
     "codegen": "node scripts/generate-profiles.mjs && node scripts/generate-build-info.mjs"
   },
   "dependencies": {
-    "hono": "4.13.7",
-    "postal-mime": "3.0.0"
+    "hono": "4.13.13",
+    "postal-mime": "3.0.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260910.1",
-    "@types/node": "26.5.1",
+    "@cloudflare/workers-types": "5.20261007.1",
+    "@types/node": "26.6.4",
     "typescript": "5.9.3",
-    "vite": "8.3.0",
+    "vite": "8.3.3",
     "vitest": "5.0.3",
-    "wrangler": "4.131.0"
+    "wrangler": "4.148.0"
   },
   "overrides": {
     "sharp": "0.35.5"
