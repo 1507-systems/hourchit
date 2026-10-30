@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   probe:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       # Full history: the check is "is the deployed commit an ancestor of main",
       # which a shallow clone cannot answer.
