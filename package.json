@@ -26,7 +26,7 @@
     "codegen": "node scripts/generate-profiles.mjs && node scripts/generate-build-info.mjs"
   },
   "dependencies": {
-    "hono": "4.13.13",
+    "hono": "4.13.16",
     "postal-mime": "3.0.1"
   },
   "devDependencies": {
